@@ -37,7 +37,7 @@ do_install () {
 }
 
 INHIBIT_DEFAULT_DEPS = "1"
-DEPENDS = "gcc-runtime"
+DEPENDS = "virtual/${TARGET_PREFIX}gcc gcc-runtime"
 
 BBCLASSEXTEND = "nativesdk"
 
