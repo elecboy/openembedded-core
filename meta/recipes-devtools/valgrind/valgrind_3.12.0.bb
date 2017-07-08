@@ -31,6 +31,7 @@ SRC_URI = "http://www.valgrind.org/downloads/valgrind-${PV}.tar.bz2 \
            file://0004-pth_atfork1.c-Define-error-API-for-musl.patch \
            file://0005-tc20_verifywrap.c-Fake-__GLIBC_PREREQ-with-musl.patch \
            file://0006-pth_detached3.c-Dereference-pthread_t-before-adding-.patch \
+           file://0001-memcheck-tests-Use-ucontext_t-instead-of-struct-ucon.patch \
            "
 SRC_URI_append_libc-musl = "\
            file://0001-fix-build-for-musl-targets.patch \
@@ -72,8 +73,6 @@ CACHED_CONFIGUREVARS += "ac_cv_path_PERL='/usr/bin/env perl'"
 # (via CFLAGS) means we interfere with that. Only pass DEBUG_FLAGS to it
 # which fixes build path issue in DWARF.
 SELECTED_OPTIMIZATION = "${DEBUG_FLAGS}"
-
-CFLAGS += "-no-pie"
 
 def get_mcpu(d):
     for arg in (d.getVar('TUNE_CCARGS') or '').split():
