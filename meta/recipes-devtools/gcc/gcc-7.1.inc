@@ -64,7 +64,7 @@ SRC_URI = "\
            file://0037-Search-target-sysroot-gcc-version-specific-dirs-with.patch \
            file://0038-Fix-various-_FOR_BUILD-and-related-variables.patch \
            file://0039-nios2-Define-MUSL_DYNAMIC_LINKER.patch \
-           file://0040-ssp_nonshared.patch \
+           file://0040-Add-ssp_nonshared-to-link-commandline-for-musl-targe.patch \
            file://0041-gcc-libcpp-support-ffile-prefix-map-old-new.patch \
            file://0042-Reuse-fdebug-prefix-map-to-replace-ffile-prefix-map.patch \
            file://0043-gcc-final.c-fdebug-prefix-map-support-to-remap-sourc.patch \
@@ -72,6 +72,7 @@ SRC_URI = "\
            file://0045-Link-libgcc-using-LDFLAGS-not-just-SHLIB_LDFLAGS.patch \
            file://0046-libgcc_s-Use-alias-for-__cpu_indicator_init-instead-.patch \
            file://0047-sync-gcc-stddef.h-with-musl.patch \
+           file://0048-gcc-Enable-static-PIE.patch \
            ${BACKPORTS} \
 "
 BACKPORTS = "\
