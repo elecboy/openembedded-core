@@ -4,13 +4,13 @@ KCONFIG_MODE = "--allnoconfig"
 
 require recipes-kernel/linux/linux-yocto.inc
 
-LINUX_VERSION ?= "4.9.31"
+LINUX_VERSION ?= "4.9.36"
 
 KMETA = "kernel-meta"
 KCONF_BSP_AUDIT_LEVEL = "2"
 
-SRCREV_machine ?= "d2de43e42bb8a270e680aab1c8f2447bff0b3552"
-SRCREV_meta ?= "60dd89e2423aaa2e7be680db09be43d1f47471e0"
+SRCREV_machine ?= "24572abb2cad341dd79e6aafcb9cdd1a7f8a0c1e"
+SRCREV_meta ?= "0db0b4a408f05cfed359983d7ff63b1a6e29be2c"
 
 PV = "${LINUX_VERSION}+git${SRCPV}"
 

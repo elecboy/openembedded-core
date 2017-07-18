@@ -233,8 +233,8 @@ do_image_ext3[depends] += "e2fsprogs-native:do_populate_sysroot"
 do_image_ext4[depends] += "e2fsprogs-native:do_populate_sysroot"
 do_image_btrfs[depends] += "btrfs-tools-native:do_populate_sysroot"
 do_image_squashfs[depends] += "squashfs-tools-native:do_populate_sysroot"
-do_image_squashfs-xz[depends] += "squashfs-tools-native:do_populate_sysroot"
-do_image_squashfs-lzo[depends] += "squashfs-tools-native:do_populate_sysroot"
+do_image_squashfs_xz[depends] += "squashfs-tools-native:do_populate_sysroot"
+do_image_squashfs_lzo[depends] += "squashfs-tools-native:do_populate_sysroot"
 do_image_elf[depends] += "virtual/kernel:do_populate_sysroot mkelfimage-native:do_populate_sysroot"
 do_image_ubi[depends] += "mtd-utils-native:do_populate_sysroot"
 do_image_ubifs[depends] += "mtd-utils-native:do_populate_sysroot"
@@ -300,9 +300,6 @@ RUNNABLE_IMAGE_TYPES ?= "ext2 ext3 ext4"
 RUNNABLE_MACHINE_PATTERNS ?= "qemu"
 
 DEPLOYABLE_IMAGE_TYPES ?= "hddimg iso" 
-
-# Use IMAGE_EXTENSION_xxx to map image type 'xxx' with real image file extension name(s) for Hob
-IMAGE_EXTENSION_live = "hddimg iso"
 
 # The IMAGE_TYPES_MASKED variable will be used to mask out from the IMAGE_FSTYPES,
 # images that will not be built at do_rootfs time: vmdk, vdi, qcow2, hdddirect, hddimg, iso, etc.
