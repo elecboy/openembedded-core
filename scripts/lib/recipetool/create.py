@@ -417,7 +417,7 @@ def create_recipe(args):
         pkgarch = "${MACHINE_ARCH}"
 
     extravalues = {}
-    checksums = (None, None)
+    checksums = {}
     tempsrc = ''
     source = args.source
     srcsubdir = ''
@@ -439,22 +439,25 @@ def create_recipe(args):
         if res:
             srcrev = res.group(1)
             srcuri = rev_re.sub('', srcuri)
-        tempsrc = tempfile.mkdtemp(prefix='recipetool-')
-        srctree = tempsrc
-        d = bb.data.createCopy(tinfoil.config_data)
-        if fetchuri.startswith('npm://'):
-            # Check if npm is available
-            npm_bindir = check_npm(tinfoil, args.devtool)
-            d.prependVar('PATH', '%s:' % npm_bindir)
-        logger.info('Fetching %s...' % srcuri)
+
+        tmpparent = tinfoil.config_data.getVar('BASE_WORKDIR')
+        bb.utils.mkdirhier(tmpparent)
+        tempsrc = tempfile.mkdtemp(prefix='recipetool-', dir=tmpparent)
+        srctree = os.path.join(tempsrc, 'source')
+
         try:
-            checksums = scriptutils.fetch_uri(d, fetchuri, srctree, srcrev)
-        except bb.fetch2.BBFetchException as e:
-            logger.error(str(e).rstrip())
+            checksums, ftmpdir = scriptutils.fetch_url(tinfoil, srcuri, srcrev, srctree, logger, preserve_tmp=args.keep_temp)
+        except scriptutils.FetchUrlFailure as e:
+            logger.error(str(e))
             sys.exit(1)
+
+        if ftmpdir and args.keep_temp:
+            logger.info('Fetch temp directory is %s' % ftmpdir)
+
         dirlist = os.listdir(srctree)
-        if 'git.indirectionsymlink' in dirlist:
-            dirlist.remove('git.indirectionsymlink')
+        filterout = ['git.indirectionsymlink']
+        dirlist = [x for x in dirlist if x not in filterout]
+        logger.debug('Directory listing (excluding filtered out):\n  %s' % '\n  '.join(dirlist))
         if len(dirlist) == 1:
             singleitem = os.path.join(srctree, dirlist[0])
             if os.path.isdir(singleitem):
@@ -462,30 +465,27 @@ def create_recipe(args):
                 srcsubdir = dirlist[0]
                 srctree = os.path.join(srctree, srcsubdir)
             else:
-                with open(singleitem, 'r', errors='surrogateescape') as f:
-                    if '<html' in f.read(100).lower():
-                        logger.error('Fetching "%s" returned a single HTML page - check the URL is correct and functional' % fetchuri)
-                        sys.exit(1)
+                check_single_file(dirlist[0], fetchuri)
+        elif len(dirlist) == 0:
+            if '/' in fetchuri:
+                fn = os.path.join(tinfoil.config_data.getVar('DL_DIR'), fetchuri.split('/')[-1])
+                if os.path.isfile(fn):
+                    check_single_file(fn, fetchuri)
+            # If we've got to here then there's no source so we might as well give up
+            logger.error('URL %s resulted in an empty source tree' % fetchuri)
+            sys.exit(1)
+
         if os.path.exists(os.path.join(srctree, '.gitmodules')) and srcuri.startswith('git://'):
             srcuri = 'gitsm://' + srcuri[6:]
             logger.info('Fetching submodules...')
             bb.process.run('git submodule update --init --recursive', cwd=srctree)
 
         if is_package(fetchuri):
-            tmpfdir = tempfile.mkdtemp(prefix='recipetool-')
-            try:
-                pkgfile = None
+            localdata = bb.data.createCopy(tinfoil.config_data)
+            pkgfile = bb.fetch2.localpath(fetchuri, localdata)
+            if pkgfile:
+                tmpfdir = tempfile.mkdtemp(prefix='recipetool-')
                 try:
-                    fileuri = fetchuri + ';unpack=0'
-                    scriptutils.fetch_uri(tinfoil.config_data, fileuri, tmpfdir, srcrev)
-                    for root, _, files in os.walk(tmpfdir):
-                        for f in files:
-                            pkgfile = os.path.join(root, f)
-                            break
-                except bb.fetch2.BBFetchException as e:
-                    logger.warn('Second fetch to get metadata failed: %s' % str(e).rstrip())
-
-                if pkgfile:
                     if pkgfile.endswith(('.deb', '.ipk')):
                         stdout, _ = bb.process.run('ar x %s' % pkgfile, cwd=tmpfdir)
                         stdout, _ = bb.process.run('tar xf control.tar.gz', cwd=tmpfdir)
@@ -495,8 +495,8 @@ def create_recipe(args):
                         stdout, _ = bb.process.run('rpm -qp --xml %s > pkginfo.xml' % pkgfile, cwd=tmpfdir)
                         values = convert_rpm_xml(os.path.join(tmpfdir, 'pkginfo.xml'))
                         extravalues.update(values)
-            finally:
-                shutil.rmtree(tmpfdir)
+                finally:
+                    shutil.rmtree(tmpfdir)
     else:
         # Assume we're pointing to an existing source tree
         if args.extract_to:
@@ -596,11 +596,8 @@ def create_recipe(args):
     if not srcuri:
         lines_before.append('# No information for SRC_URI yet (only an external source tree was specified)')
     lines_before.append('SRC_URI = "%s"' % srcuri)
-    (md5value, sha256value) = checksums
-    if md5value:
-        lines_before.append('SRC_URI[md5sum] = "%s"' % md5value)
-    if sha256value:
-        lines_before.append('SRC_URI[sha256sum] = "%s"' % sha256value)
+    for key, value in sorted(checksums.items()):
+        lines_before.append('SRC_URI[%s] = "%s"' % (key, value))
     if srcuri and supports_srcrev(srcuri):
         lines_before.append('')
         lines_before.append('# Modify these as desired')
@@ -811,6 +808,14 @@ def create_recipe(args):
             shutil.rmtree(tempsrc)
 
     return 0
+
+def check_single_file(fn, fetchuri):
+    """Determine if a single downloaded file is something we can't handle"""
+    with open(fn, 'r', errors='surrogateescape') as f:
+        if '<html' in f.read(100).lower():
+            logger.error('Fetching "%s" returned a single HTML page - check the URL is correct and functional' % fetchuri)
+            sys.exit(1)
+
 
 def handle_license_vars(srctree, lines_before, handled, extravalues, d):
     licvalues = guess_license(srctree, d)
@@ -1147,22 +1152,6 @@ def convert_rpm_xml(xmlfile):
     return values
 
 
-def check_npm(tinfoil, debugonly=False):
-    try:
-        rd = tinfoil.parse_recipe('nodejs-native')
-    except bb.providers.NoProvider:
-        # We still conditionally show the message and exit with the special
-        # return code, otherwise we can't show the proper message for eSDK
-        # users
-        log_error_cond('nodejs-native is required for npm but is not available - you will likely need to add a layer that provides nodejs', debugonly)
-        sys.exit(14)
-    bindir = rd.getVar('STAGING_BINDIR_NATIVE')
-    npmpath = os.path.join(bindir, 'npm')
-    if not os.path.exists(npmpath):
-        log_error_cond('npm required to process specified source, but npm is not available - you need to run bitbake -c addto_recipe_sysroot nodejs-native first', debugonly)
-        sys.exit(14)
-    return bindir
-
 def register_commands(subparsers):
     parser_create = subparsers.add_parser('create',
                                           help='Create a new recipe',
@@ -1180,8 +1169,5 @@ def register_commands(subparsers):
     parser_create.add_argument('--keep-temp', action="store_true", help='Keep temporary directory (for debugging)')
     parser_create.add_argument('--fetch-dev', action="store_true", help='For npm, also fetch devDependencies')
     parser_create.add_argument('--devtool', action="store_true", help=argparse.SUPPRESS)
-    # FIXME I really hate having to set parserecipes for this, but given we may need
-    # to call into npm (and we don't know in advance if we will or not) and in order
-    # to do so we need to know npm's recipe sysroot path, there's not much alternative
-    parser_create.set_defaults(func=create_recipe, parserecipes=True)
+    parser_create.set_defaults(func=create_recipe)
 

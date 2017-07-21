@@ -30,7 +30,7 @@ import errno
 import glob
 import filecmp
 from collections import OrderedDict
-from devtool import exec_build_env_command, setup_tinfoil, check_workspace_recipe, use_external_build, setup_git_repo, recipe_to_append, get_bbclassextend_targets, ensure_npm, DevtoolError
+from devtool import exec_build_env_command, setup_tinfoil, check_workspace_recipe, use_external_build, setup_git_repo, recipe_to_append, get_bbclassextend_targets, DevtoolError
 from devtool import parse_recipe
 
 logger = logging.getLogger('devtool')
@@ -128,9 +128,6 @@ def add(args, config, basepath, workspace):
         color = args.color
     extracmdopts = ''
     if args.fetchuri:
-        if args.fetchuri.startswith('npm://'):
-            ensure_npm(config, basepath, args.fixed_setup)
-
         source = args.fetchuri
         if srctree:
             extracmdopts += ' -x %s' % srctree
@@ -152,31 +149,18 @@ def add(args, config, basepath, workspace):
         extracmdopts += ' -a'
     if args.fetch_dev:
         extracmdopts += ' --fetch-dev'
+    if args.mirrors:
+        extracmdopts += ' --mirrors'
 
     tempdir = tempfile.mkdtemp(prefix='devtool')
     try:
-        builtnpm = False
-        while True:
-            try:
-                stdout, _ = exec_build_env_command(config.init_path, basepath, 'recipetool --color=%s create --devtool -o %s \'%s\' %s' % (color, tempdir, source, extracmdopts), watch=True)
-            except bb.process.ExecutionError as e:
-                if e.exitcode == 14:
-                    if builtnpm:
-                        raise DevtoolError('Re-running recipetool still failed to find npm')
-                    # FIXME this is a horrible hack that is unfortunately
-                    # necessary due to the fact that we can't run bitbake from
-                    # inside recipetool since recipetool keeps tinfoil active
-                    # with references to it throughout the code, so we have
-                    # to exit out and come back here to do it.
-                    ensure_npm(config, basepath, args.fixed_setup, check_exists=False)
-                    logger.info('Re-running recipe creation process after building nodejs')
-                    builtnpm = True
-                    continue
-                elif e.exitcode == 15:
-                    raise DevtoolError('Could not auto-determine recipe name, please specify it on the command line')
-                else:
-                    raise DevtoolError('Command \'%s\' failed' % e.command)
-            break
+        try:
+            stdout, _ = exec_build_env_command(config.init_path, basepath, 'recipetool --color=%s create --devtool -o %s \'%s\' %s' % (color, tempdir, source, extracmdopts), watch=True)
+        except bb.process.ExecutionError as e:
+            if e.exitcode == 15:
+                raise DevtoolError('Could not auto-determine recipe name, please specify it on the command line')
+            else:
+                raise DevtoolError('Command \'%s\' failed' % e.command)
 
         recipes = glob.glob(os.path.join(tempdir, '*.bb'))
         if recipes:
@@ -383,7 +367,7 @@ def extract(args, config, basepath, workspace):
     """Entry point for the devtool 'extract' subcommand"""
     import bb
 
-    tinfoil = _prep_extract_operation(config, basepath, args.recipename)
+    tinfoil = setup_tinfoil(basepath=basepath)
     if not tinfoil:
         # Error already shown
         return 1
@@ -407,7 +391,7 @@ def sync(args, config, basepath, workspace):
     """Entry point for the devtool 'sync' subcommand"""
     import bb
 
-    tinfoil = _prep_extract_operation(config, basepath, args.recipename)
+    tinfoil = setup_tinfoil(basepath=basepath)
     if not tinfoil:
         # Error already shown
         return 1
@@ -426,29 +410,6 @@ def sync(args, config, basepath, workspace):
             return 1
     finally:
         tinfoil.shutdown()
-
-
-def _prep_extract_operation(config, basepath, recipename, tinfoil=None):
-    """HACK: Ugly workaround for making sure that requirements are met when
-       trying to extract a package. Returns the tinfoil instance to be used."""
-    if not tinfoil:
-        tinfoil = setup_tinfoil(basepath=basepath)
-
-    rd = parse_recipe(config, tinfoil, recipename, True)
-    if not rd:
-        tinfoil.shutdown()
-        return None
-
-    if bb.data.inherits_class('kernel-yocto', rd):
-        tinfoil.shutdown()
-        try:
-            stdout, _ = exec_build_env_command(config.init_path, basepath,
-                                               'bitbake kern-tools-native')
-            tinfoil = setup_tinfoil(basepath=basepath)
-        except bb.process.ExecutionError as err:
-            raise DevtoolError("Failed to build kern-tools-native:\n%s" %
-                               err.stdout)
-    return tinfoil
 
 
 def _extract_source(srctree, keep_temp, devbranch, sync, d, tinfoil):
@@ -474,6 +435,9 @@ def _extract_source(srctree, keep_temp, devbranch, sync, d, tinfoil):
         if 'noexec' in (d.getVarFlags('do_unpack', False) or []):
             raise DevtoolError("The %s recipe has do_unpack disabled, unable to "
                                "extract source" % pn, 4)
+
+    if bb.data.inherits_class('kernel-yocto', d):
+        tinfoil.build_targets('kern-tools-native')
 
     if not sync:
         # Prepare for shutil.move later on
@@ -773,13 +737,6 @@ def modify(args, config, basepath, workspace):
             raise DevtoolError("--no-extract specified and source path %s does "
                             "not exist or is not a directory" %
                             srctree)
-        if not args.no_extract:
-            tinfoil = _prep_extract_operation(config, basepath, pn, tinfoil)
-            if not tinfoil:
-                # Error already shown
-                return 1
-            # We need to re-parse because tinfoil may have been re-initialised
-            rd = parse_recipe(config, tinfoil, args.recipename, True)
 
         recipefile = rd.getVar('FILE')
         appendfile = recipe_to_append(recipefile, config, args.wildcard)
@@ -1842,6 +1799,7 @@ def register_commands(subparsers, context):
     parser_add.add_argument('--binary', '-b', help='Treat the source tree as something that should be installed verbatim (no compilation, same directory structure). Useful with binary packages e.g. RPMs.', action='store_true')
     parser_add.add_argument('--also-native', help='Also add native variant (i.e. support building recipe for the build host as well as the target machine)', action='store_true')
     parser_add.add_argument('--src-subdir', help='Specify subdirectory within source tree to use', metavar='SUBDIR')
+    parser_add.add_argument('--mirrors', help='Enable PREMIRRORS and MIRRORS for source tree fetching (disable by default).', action="store_true")
     parser_add.set_defaults(func=add, fixed_setup=context.fixed_setup)
 
     parser_modify = subparsers.add_parser('modify', help='Modify the source for an existing recipe',
