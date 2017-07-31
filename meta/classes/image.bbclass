@@ -138,20 +138,8 @@ def build_live(d):
 IMAGE_TYPE_live = "${@build_live(d)}"
 inherit ${IMAGE_TYPE_live}
 
-IMAGE_TYPE_vm = '${@bb.utils.contains_any("IMAGE_FSTYPES", ["vmdk", "vdi", "qcow2", "hdddirect"], "image-vm", "", d)}'
-inherit ${IMAGE_TYPE_vm}
-
 IMAGE_TYPE_container = '${@bb.utils.contains("IMAGE_FSTYPES", "container", "image-container", "", d)}'
 inherit ${IMAGE_TYPE_container}
-
-def build_uboot(d):
-    if 'u-boot' in (d.getVar('IMAGE_FSTYPES') or ''):
-        return "image_types_uboot"
-    else:
-        return ""
-
-IMAGE_TYPE_uboot = "${@build_uboot(d)}"
-inherit ${IMAGE_TYPE_uboot}
 
 IMAGE_TYPE_wic = "image_types_wic"
 inherit ${IMAGE_TYPE_wic}
@@ -453,7 +441,7 @@ python () {
         rm_tmp_images = set()
         def gen_conversion_cmds(bt):
             for ctype in ctypes:
-                if bt[bt.find('.') + 1:] == ctype:
+                if bt.endswith("." + ctype):
                     type = bt[0:-len(ctype) - 1]
                     if type.startswith("debugfs_"):
                         type = type[8:]
@@ -483,7 +471,7 @@ python () {
         # Clean up after applying all conversion commands. Some of them might
         # use the same input, therefore we cannot delete sooner without applying
         # some complex dependency analysis.
-        for image in rm_tmp_images:
+        for image in sorted(rm_tmp_images):
             cmds.append("\trm " + image)
 
         after = 'do_image'

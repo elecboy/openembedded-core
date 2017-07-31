@@ -48,7 +48,7 @@ class RootfsPlugin(SourcePlugin):
     @staticmethod
     def __get_rootfs_dir(rootfs_dir):
         if os.path.isdir(rootfs_dir):
-            return rootfs_dir
+            return os.path.realpath(rootfs_dir)
 
         image_rootfs_dir = get_bitbake_var("IMAGE_ROOTFS", rootfs_dir)
         if not os.path.isdir(image_rootfs_dir):
@@ -56,7 +56,7 @@ class RootfsPlugin(SourcePlugin):
                            "named %s has been found at %s, exiting." %
                            (rootfs_dir, image_rootfs_dir))
 
-        return image_rootfs_dir
+        return os.path.realpath(image_rootfs_dir)
 
     @classmethod
     def do_prepare_partition(cls, part, source_params, cr, cr_workdir,
@@ -81,20 +81,19 @@ class RootfsPlugin(SourcePlugin):
                 raise WicError("Couldn't find --rootfs-dir=%s connection or "
                                "it is not a valid path, exiting" % part.rootfs_dir)
 
-        real_rootfs_dir = cls.__get_rootfs_dir(rootfs_dir)
+        part.rootfs_dir = cls.__get_rootfs_dir(rootfs_dir)
 
+        new_rootfs = None
         # Handle excluded paths.
         if part.exclude_path is not None:
             # We need a new rootfs directory we can delete files from. Copy to
             # workdir.
-            new_rootfs = os.path.realpath(os.path.join(cr_workdir, "rootfs"))
+            new_rootfs = os.path.realpath(os.path.join(cr_workdir, "rootfs%d" % part.lineno))
 
             if os.path.lexists(new_rootfs):
                 shutil.rmtree(os.path.join(new_rootfs))
 
-            copyhardlinktree(real_rootfs_dir, new_rootfs)
-
-            real_rootfs_dir = new_rootfs
+            copyhardlinktree(part.rootfs_dir, new_rootfs)
 
             for orig_path in part.exclude_path:
                 path = orig_path
@@ -123,6 +122,5 @@ class RootfsPlugin(SourcePlugin):
                     # Delete whole directory.
                     shutil.rmtree(full_path)
 
-        part.rootfs_dir = real_rootfs_dir
         part.prepare_rootfs(cr_workdir, oe_builddir,
-                            real_rootfs_dir, native_sysroot)
+                            new_rootfs or part.rootfs_dir, native_sysroot)

@@ -3,6 +3,7 @@ from oeqa.utils.commands import runCmd, bitbake, get_bb_var, runqemu
 from oeqa.core.decorator.oeid import OETestID
 from oeqa.utils.sshcontrol import SSHControl
 import os
+import json
 
 class ImageFeatures(OESelftestTestCase):
 
@@ -106,7 +107,7 @@ class ImageFeatures(OESelftestTestCase):
         Author:      Ed Bartosh <ed.bartosh@linux.intel.com>
         """
 
-        features = 'IMAGE_FSTYPES += " ext4 ext4.bmap"'
+        features = 'IMAGE_FSTYPES += " ext4 ext4.bmap ext4.bmap.gz"'
         self.write_config(features)
 
         image_name = 'core-image-minimal'
@@ -116,14 +117,84 @@ class ImageFeatures(OESelftestTestCase):
         link_name = get_bb_var('IMAGE_LINK_NAME', image_name)
         image_path = os.path.join(deploy_dir_image, "%s.ext4" % link_name)
         bmap_path = "%s.bmap" % image_path
+        gzip_path = "%s.gz" % bmap_path
 
-        # check if result image and bmap file are in deploy directory
+        # check if result image, bmap and bmap.gz files are in deploy directory
         self.assertTrue(os.path.exists(image_path))
         self.assertTrue(os.path.exists(bmap_path))
+        self.assertTrue(os.path.exists(gzip_path))
 
         # check if result image is sparse
         image_stat = os.stat(image_path)
         self.assertTrue(image_stat.st_size > image_stat.st_blocks * 512)
+
+        # check if the resulting gzip is valid
+        self.assertTrue(runCmd('gzip -t %s' % gzip_path))
+
+    def test_hypervisor_fmts(self):
+        """
+        Summary:     Check various hypervisor formats
+        Expected:    1. core-image-minimal can be built with vmdk, vdi and
+                        qcow2 support.
+                     2. qemu-img says each image has the expected format
+        Product:     oe-core
+        Author:      Tom Rini <trini@konsulko.com>
+        """
+
+        img_types = [ 'vmdk', 'vdi', 'qcow2' ]
+        features = ""
+        for itype in img_types:
+            features += 'IMAGE_FSTYPES += "wic.%s"\n' % itype
+        self.write_config(features)
+
+        image_name = 'core-image-minimal'
+        bitbake(image_name)
+
+        deploy_dir_image = get_bb_var('DEPLOY_DIR_IMAGE')
+        link_name = get_bb_var('IMAGE_LINK_NAME', image_name)
+        for itype in img_types:
+            image_path = os.path.join(deploy_dir_image, "%s.wic.%s" %
+                                      (link_name, itype))
+
+            # check if result image file is in deploy directory
+            self.assertTrue(os.path.exists(image_path))
+
+            # check if result image is vmdk
+            sysroot = get_bb_var('STAGING_DIR_NATIVE', 'core-image-minimal')
+            result = runCmd('qemu-img info --output json %s' % image_path,
+                            native_sysroot=sysroot)
+            self.assertTrue(json.loads(result.output).get('format') == itype)
+
+    def test_long_chain_conversion(self):
+        """
+        Summary:     Check for chaining many CONVERSION_CMDs together
+        Expected:    1. core-image-minimal can be built with
+                        ext4.bmap.gz.bz2.lzo.xz.u-boot and also create a
+                        sha256sum
+                     2. The above image has a valid sha256sum
+        Product:     oe-core
+        Author:      Tom Rini <trini@konsulko.com>
+        """
+
+        conv = "ext4.bmap.gz.bz2.lzo.xz.u-boot"
+        features = 'IMAGE_FSTYPES += "%s %s.sha256sum"' % (conv, conv)
+        self.write_config(features)
+
+        image_name = 'core-image-minimal'
+        bitbake(image_name)
+
+        deploy_dir_image = get_bb_var('DEPLOY_DIR_IMAGE')
+        link_name = get_bb_var('IMAGE_LINK_NAME', image_name)
+        image_path = os.path.join(deploy_dir_image, "%s.%s" %
+                                  (link_name, conv))
+
+        # check if resulting image is in the deploy directory
+        self.assertTrue(os.path.exists(image_path))
+        self.assertTrue(os.path.exists(image_path + ".sha256sum"))
+
+        # check if the resulting sha256sum agrees
+        self.assertTrue(runCmd('cd %s;sha256sum -c %s.%s.sha256sum' %
+                               (deploy_dir_image, link_name, conv)))
 
     def test_image_fstypes(self):
         """

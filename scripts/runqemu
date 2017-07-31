@@ -48,7 +48,7 @@ def create_logger():
 
     # create console handler and set level to debug
     ch = logging.StreamHandler()
-    ch.setLevel(logging.INFO)
+    ch.setLevel(logging.DEBUG)
 
     # create formatter
     formatter = logging.Formatter('%(name)s - %(levelname)s - %(message)s')
@@ -85,6 +85,8 @@ of the following environment variables (in any order):
   qemuparams=<xyz> - specify custom parameters to QEMU
   bootparams=<xyz> - specify custom kernel parameters during boot
   help, -h, --help: print this text
+  -d, --debug: Enable debug output
+  -q, --quite: Hide most output except error messages
 
 Examples:
   runqemu
@@ -94,11 +96,11 @@ Examples:
   runqemu qemux86-64 core-image-sato ext4
   runqemu qemux86-64 wic-image-minimal wic
   runqemu path/to/bzImage-qemux86.bin path/to/nfsrootdir/ serial
-  runqemu qemux86 iso/hddimg/vmdk/qcow2/vdi/ramfs/cpio.gz...
+  runqemu qemux86 iso/hddimg/wic.vmdk/wic.qcow2/wic.vdi/ramfs/cpio.gz...
   runqemu qemux86 qemuparams="-m 256"
   runqemu qemux86 bootparams="psplash=false"
-  runqemu path/to/<image>-<machine>.vmdk
   runqemu path/to/<image>-<machine>.wic
+  runqemu path/to/<image>-<machine>.wic.vmdk
 """)
 
 def check_tun():
@@ -112,7 +114,7 @@ def check_tun():
 
 def check_libgl(qemu_bin):
     cmd = 'ldd %s' % qemu_bin
-    logger.info('Running %s...' % cmd)
+    logger.debug('Running %s...' % cmd)
     need_gl = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE).stdout.read().decode('utf-8')
     if re.search('libGLU', need_gl):
         # We can't run without a libGL.so
@@ -216,8 +218,10 @@ class BaseConfig(object):
         self.lock_descriptor = ''
         self.bitbake_e = ''
         self.snapshot = False
-        self.fstypes = ('ext2', 'ext3', 'ext4', 'jffs2', 'nfs', 'btrfs', 'cpio.gz', 'cpio', 'ramfs')
-        self.vmtypes = ('hddimg', 'hdddirect', 'wic', 'vmdk', 'qcow2', 'vdi', 'iso')
+        self.fstypes = ('ext2', 'ext3', 'ext4', 'jffs2', 'nfs', 'btrfs',
+                        'cpio.gz', 'cpio', 'ramfs', 'tar.bz2', 'tar.gz')
+        self.vmtypes = ('hddimg', 'hdddirect', 'wic', 'wic.vmdk',
+                        'wic.qcow2', 'wic.vdi', 'iso')
         self.network_device = "-device e1000,netdev=net0,mac=@MAC@"
         # Use different mac section for tap and slirp to avoid
         # conflicts, e.g., when one is running with tap, the other is
@@ -229,12 +233,12 @@ class BaseConfig(object):
         self.mac_slirp = "52:54:00:12:35:"
 
     def acquire_lock(self):
-        logger.info("Acquiring lockfile %s..." % self.lock)
+        logger.debug("Acquiring lockfile %s..." % self.lock)
         try:
             self.lock_descriptor = open(self.lock, 'w')
             fcntl.flock(self.lock_descriptor, fcntl.LOCK_EX|fcntl.LOCK_NB)
         except Exception as e:
-            logger.info("Acquiring lockfile %s failed: %s" % (self.lock, e))
+            logger.error("Acquiring lockfile %s failed: %s" % (self.lock, e))
             if self.lock_descriptor:
                 self.lock_descriptor.close()
             return False
@@ -259,10 +263,10 @@ class BaseConfig(object):
     def is_deploy_dir_image(self, p):
         if os.path.isdir(p):
             if not re.search('.qemuboot.conf$', '\n'.join(os.listdir(p)), re.M):
-                logger.info("Can't find required *.qemuboot.conf in %s" % p)
+                logger.debug("Can't find required *.qemuboot.conf in %s" % p)
                 return False
             if not any(map(lambda name: '-image-' in name, os.listdir(p))):
-                logger.info("Can't find *-image-* in %s" % p)
+                logger.debug("Can't find *-image-* in %s" % p)
                 return False
             return True
         else:
@@ -275,15 +279,17 @@ class BaseConfig(object):
         if not self.fstype or self.fstype == fst:
             if fst == 'ramfs':
                 fst = 'cpio.gz'
+            if fst in ('tar.bz2', 'tar.gz'):
+                fst = 'nfs'
             self.fstype = fst
         else:
             raise RunQemuError("Conflicting: FSTYPE %s and %s" % (self.fstype, fst))
 
     def set_machine_deploy_dir(self, machine, deploy_dir_image):
         """Set MACHINE and DEPLOY_DIR_IMAGE"""
-        logger.info('MACHINE: %s' % machine)
+        logger.debug('MACHINE: %s' % machine)
         self.set("MACHINE", machine)
-        logger.info('DEPLOY_DIR_IMAGE: %s' % deploy_dir_image)
+        logger.debug('DEPLOY_DIR_IMAGE: %s' % deploy_dir_image)
         self.set("DEPLOY_DIR_IMAGE", deploy_dir_image)
 
     def check_arg_nfs(self, p):
@@ -337,10 +343,10 @@ class BaseConfig(object):
 
         elif os.path.isdir(p) or re.search(':', p) and re.search('/', p):
             if self.is_deploy_dir_image(p):
-                logger.info('DEPLOY_DIR_IMAGE: %s' % p)
+                logger.debug('DEPLOY_DIR_IMAGE: %s' % p)
                 self.set("DEPLOY_DIR_IMAGE", p)
             else:
-                logger.info("Assuming %s is an nfs rootfs" % p)
+                logger.debug("Assuming %s is an nfs rootfs" % p)
                 self.check_arg_nfs(p)
         elif os.path.basename(p).startswith('ovmf'):
             self.ovmf_bios.append(p)
@@ -356,7 +362,7 @@ class BaseConfig(object):
         elif re.search('/', arg):
             raise RunQemuError("Unknown arg: %s" % arg)
 
-        logger.info('Assuming MACHINE = %s' % arg)
+        logger.debug('Assuming MACHINE = %s' % arg)
 
         # if we're running under testimage, or similarly as a child
         # of an existing bitbake invocation, we can't invoke bitbake
@@ -393,6 +399,16 @@ class BaseConfig(object):
             self.set("MACHINE", arg)
 
     def check_args(self):
+        for debug in ("-d", "--debug"):
+            if debug in sys.argv:
+                logger.setLevel(logging.DEBUG)
+                sys.argv.remove(debug)
+
+        for quiet in ("-q", "--quiet"):
+            if quiet in sys.argv:
+                logger.setLevel(logging.ERROR)
+                sys.argv.remove(quiet)
+
         unknown_arg = ""
         for arg in sys.argv[1:]:
             if arg in self.fstypes + self.vmtypes:
@@ -454,7 +470,7 @@ class BaseConfig(object):
 
             self.check_arg_machine(unknown_arg)
 
-        if not self.get('DEPLOY_DIR_IMAGE'):
+        if not (self.get('DEPLOY_DIR_IMAGE') or self.qbconfload):
             self.load_bitbake_env()
             s = re.search('^DEPLOY_DIR_IMAGE="(.*)"', self.bitbake_e, re.M)
             if s:
@@ -608,7 +624,7 @@ class BaseConfig(object):
                 break
 
         if biosdir:
-            logger.info("Assuming biosdir is: %s" % biosdir)
+            logger.debug("Assuming biosdir is: %s" % biosdir)
             self.qemu_opt_script += ' -L %s' % biosdir
         else:
             logger.error("Custom BIOS directory not found. Tried: %s, %s, and %s" % (self.custombiosdir, biosdir_native, biosdir_host))
@@ -663,7 +679,7 @@ class BaseConfig(object):
             if self.get('DEPLOY_DIR_IMAGE'):
                 deploy_dir_image = self.get('DEPLOY_DIR_IMAGE')
             else:
-                logger.info("Can't find qemuboot conf file, DEPLOY_DIR_IMAGE is NULL!")
+                logger.warn("Can't find qemuboot conf file, DEPLOY_DIR_IMAGE is NULL!")
                 return
 
             if self.rootfs and not os.path.exists(self.rootfs):
@@ -675,7 +691,7 @@ class BaseConfig(object):
                         self.rootfs, machine)
             else:
                 cmd = 'ls -t %s/*.qemuboot.conf' %  deploy_dir_image
-                logger.info('Running %s...' % cmd)
+                logger.debug('Running %s...' % cmd)
                 try:
                     qbs = subprocess.check_output(cmd, shell=True).decode('utf-8')
                 except subprocess.CalledProcessError as err:
@@ -700,7 +716,7 @@ class BaseConfig(object):
         if not os.path.exists(self.qemuboot):
             raise RunQemuError("Failed to find %s (wrong image name or BSP does not support running under qemu?)." % self.qemuboot)
 
-        logger.info('CONFFILE: %s' % self.qemuboot)
+        logger.debug('CONFFILE: %s' % self.qemuboot)
 
         cf = configparser.ConfigParser()
         cf.read(self.qemuboot)
@@ -895,11 +911,12 @@ class BaseConfig(object):
             # running at the same time.
             try:
                 os.mkdir(lockdir)
+                os.chmod(lockdir, 0o777)
             except FileExistsError:
                 pass
 
         cmd = '%s link' % ip
-        logger.info('Running %s...' % cmd)
+        logger.debug('Running %s...' % cmd)
         ip_link = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE).stdout.read().decode('utf-8')
         # Matches line like: 6: tap0: <foo>
         possibles = re.findall('^[1-9]+: +(tap[0-9]+): <.*', ip_link, re.M)
@@ -931,7 +948,7 @@ class BaseConfig(object):
             self.lock = lockfile + '.lock'
             self.acquire_lock()
             self.cleantap = True
-            logger.info('Created tap: %s' % tap)
+            logger.debug('Created tap: %s' % tap)
 
         if not tap:
             logger.error("Failed to setup tap device. Run runqemu-gen-tapdevs to manually create.")
@@ -971,6 +988,8 @@ class BaseConfig(object):
     def setup_rootfs(self):
         if self.get('QB_ROOTFS') == 'none':
             return
+        if 'wic.' in self.fstype:
+            self.fstype = self.fstype[4:]
         rootfs_format = self.fstype if self.fstype in ('vmdk', 'qcow2', 'vdi') else 'raw'
 
         qb_rootfs_opt = self.get('QB_ROOTFS_OPT')
@@ -1150,7 +1169,7 @@ class BaseConfig(object):
     def cleanup(self):
         if self.cleantap:
             cmd = 'sudo %s %s %s' % (self.qemuifdown, self.tap, self.bindir_native)
-            logger.info('Running %s' % cmd)
+            logger.debug('Running %s' % cmd)
             subprocess.check_call(cmd, shell=True)
         if self.lock_descriptor:
             logger.info("Releasing lockfile for tap device '%s'" % self.tap)
@@ -1159,7 +1178,7 @@ class BaseConfig(object):
         if self.nfs_running:
             logger.info("Shutting down the userspace NFS server...")
             cmd = "runqemu-export-rootfs stop %s" % self.rootfs
-            logger.info('Running %s' % cmd)
+            logger.debug('Running %s' % cmd)
             subprocess.check_call(cmd, shell=True)
 
         if self.saved_stty:
@@ -1194,6 +1213,10 @@ class BaseConfig(object):
             self.bitbake_e = ''
             logger.warn("Couldn't run 'bitbake -e' to gather environment information:\n%s" % err.output.decode('utf-8'))
 
+    def validate_combos(self):
+        if (self.fstype in self.vmtypes) and self.kernel:
+            raise RunQemuError("%s doesn't need kernel %s!" % (self.fstype, self.kernel))
+
     @property
     def bindir_native(self):
         result = self.get('STAGING_BINDIR_NATIVE')
@@ -1225,6 +1248,8 @@ def main():
         config.check_args()
         config.read_qemuboot()
         config.check_and_set()
+        # Check whether the combos is valid or not
+        config.validate_combos()
         config.print_config()
         config.setup_network()
         config.setup_rootfs()
