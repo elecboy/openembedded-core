@@ -261,7 +261,7 @@ fakeroot python do_rootfs () {
 do_rootfs[dirs] = "${TOPDIR}"
 do_rootfs[cleandirs] += "${S} ${IMGDEPLOYDIR}"
 do_rootfs[umask] = "022"
-addtask rootfs before do_build after do_prepare_recipe_sysroot
+addtask rootfs after do_prepare_recipe_sysroot
 
 fakeroot python do_image () {
     from oe.utils import execute_pre_post_process
@@ -272,7 +272,7 @@ fakeroot python do_image () {
 }
 do_image[dirs] = "${TOPDIR}"
 do_image[umask] = "022"
-addtask do_image after do_rootfs before do_build
+addtask do_image after do_rootfs
 
 fakeroot python do_image_complete () {
     from oe.utils import execute_pre_post_process
@@ -289,6 +289,10 @@ do_image_complete[sstate-inputdirs] = "${IMGDEPLOYDIR}"
 do_image_complete[sstate-outputdirs] = "${DEPLOY_DIR_IMAGE}"
 do_image_complete[stamp-extra-info] = "${MACHINE}"
 addtask do_image_complete after do_image before do_build
+python do_image_complete_setscene () {
+    sstate_setscene(d)
+}
+addtask do_image_complete_setscene
 
 # Add image-level QA/sanity checks to IMAGE_QA_COMMANDS
 #
@@ -319,6 +323,15 @@ fakeroot python do_image_qa () {
         bb.fatal("QA errors found whilst validating image: %s\n%s" % (imgname, qamsg))
 }
 addtask do_image_qa after do_image_complete before do_build
+
+SSTATETASKS += "do_image_qa"
+SSTATE_SKIP_CREATION_task-image-qa = '1'
+do_image_qa[sstate-inputdirs] = ""
+do_image_qa[sstate-outputdirs] = ""
+python do_image_qa_setscene () {
+    sstate_setscene(d)
+}
+addtask do_image_qa_setscene
 
 def setup_debugfs_variables(d):
     d.appendVar('IMAGE_ROOTFS', '-dbg')
