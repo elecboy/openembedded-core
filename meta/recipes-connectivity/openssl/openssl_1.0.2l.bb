@@ -1,8 +1,7 @@
-require openssl.inc
+require openssl10.inc
 
 # For target side versions of openssl enable support for OCF Linux driver
 # if they are available.
-DEPENDS += "cryptodev-linux"
 
 CFLAG += "-DHAVE_CRYPTODEV -DUSE_CRYPTODEV_DIGESTS"
 CFLAG_append_class-native = " -fPIC"
@@ -12,7 +11,7 @@ LIC_FILES_CHKSUM = "file://LICENSE;md5=057d9218c6180e1d9ee407572b2dd225"
 export DIRS = "crypto ssl apps engines"
 export OE_LDFLAGS="${LDFLAGS}"
 
-SRC_URI += "file://find.pl;subdir=${BP}/util/ \
+SRC_URI += "file://find.pl;subdir=openssl-${PV}/util/ \
             file://run-ptest \
             file://openssl-c_rehash.sh \
             file://configure-targets.patch \

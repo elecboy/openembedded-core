@@ -21,6 +21,7 @@ SRC_URI = "http://www.webkitgtk.org/releases/${BPN}-${PV}.tar.xz \
            file://cross-compile.patch \
            file://gcc7.patch \
            file://detect-atomics-during-configure.patch \
+           file://0001-WebKitMacros-Append-to-I-and-not-to-isystem.patch \
            "
 
 SRC_URI[md5sum] = "0e2d142a586e4ff79cf0324f4fdbf20c"
@@ -97,7 +98,7 @@ SECURITY_CFLAGS_append_aarch64 = " -fPIE"
 
 FILES_${PN} += "${libdir}/webkit2gtk-4.0/injected-bundle/libwebkit2gtkinjectedbundle.so"
 
-RRECOMMENDS_${PN} += "ca-certificates"
+RRECOMMENDS_${PN} += "ca-certificates shared-mime-info"
 
 # http://errors.yoctoproject.org/Errors/Details/20370/
 ARM_INSTRUCTION_SET_armv4 = "arm"

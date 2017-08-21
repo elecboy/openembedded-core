@@ -8,6 +8,8 @@ from oeqa.utils.commands import runCmd, bitbake, get_bb_var, get_test_layer
 from oeqa.selftest.cases.sstate import SStateBase
 from oeqa.core.decorator.oeid import OETestID
 
+import bb.siggen
+
 class SStateTests(SStateBase):
 
     # Test sstate files creation and their location
@@ -456,6 +458,24 @@ http_proxy = "http://example.com/"
                     base = os.sep.join(root.rsplit(os.sep, 2)[-2:] + [name])
                     f[base] = shash
             return f
+
+        def compare_sigfiles(files, files1, files2, compare=False):
+            for k in files:
+                if k in files1 and k in files2:
+                    print("%s differs:" % k)
+                    if compare:
+                        sigdatafile1 = self.topdir + "/tmp-sstatesamehash/stamps/" + k + "." + files1[k]
+                        sigdatafile2 = self.topdir + "/tmp-sstatesamehash2/stamps/" + k + "." + files2[k]
+                        output = bb.siggen.compare_sigfiles(sigdatafile1, sigdatafile2)
+                        if output:
+                            print('\n'.join(output))
+                elif k in files1 and k not in files2:
+                    print("%s in files1" % k)
+                elif k not in files1 and k in files2:
+                    print("%s in files2" % k)
+                else:
+                    assert "shouldn't reach here"
+
         files1 = get_files(self.topdir + "/tmp-sstatesamehash/stamps/")
         files2 = get_files(self.topdir + "/tmp-sstatesamehash2/stamps/")
         # Remove items that are identical in both sets
@@ -466,16 +486,11 @@ http_proxy = "http://example.com/"
             # No changes, so we're done
             return
 
-        for k in files1.keys() | files2.keys():
-            if k in files1 and k in files2:
-                print("%s differs:" % k)
-                print(subprocess.check_output(("bitbake-diffsigs",
-                                               self.topdir + "/tmp-sstatesamehash/stamps/" + k + "." + files1[k],
-                                               self.topdir + "/tmp-sstatesamehash2/stamps/" + k + "." + files2[k])))
-            elif k in files1 and k not in files2:
-                print("%s in files1" % k)
-            elif k not in files1 and k in files2:
-                print("%s in files2" % k)
-            else:
-                assert "shouldn't reach here"
+        files = list(files1.keys() | files2.keys())
+        # this is an expensive computation, thus just compare the first 'max_sigfiles_to_compare' k files
+        max_sigfiles_to_compare = 20
+        first, rest = files[:max_sigfiles_to_compare], files[max_sigfiles_to_compare:]
+        compare_sigfiles(first, files1.keys(), files2.keys(), compare=True)
+        compare_sigfiles(rest, files1.keys(), files2.keys(), compare=False)
+
         self.fail("sstate hashes not identical.")

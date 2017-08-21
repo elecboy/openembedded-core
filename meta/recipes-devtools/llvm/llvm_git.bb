@@ -10,8 +10,6 @@ LIC_FILES_CHKSUM = "file://LICENSE.TXT;md5=e825e017edc35cfd58e26116e5251771"
 
 DEPENDS = "libffi libxml2-native zlib ninja-native llvm-native"
 
-DEPENDS_remove_toolchain-clang = "llvm-native"
-
 RDEPENDS_${PN}_append_class-target = " ncurses-terminfo"
 
 inherit perlnative pythonnative cmake pkgconfig
@@ -28,6 +26,7 @@ SRC_URI = "git://github.com/llvm-mirror/llvm.git;branch=release_50;protocol=http
            file://0001-llvm-TargetLibraryInfo-Undefine-libc-functions-if-th.patch \
            file://0002-llvm-allow-env-override-of-exe-path.patch \
           "
+UPSTREAM_VERSION_UNKNOWN = "1"
 S = "${WORKDIR}/git"
 
 LLVM_INSTALL_DIR = "${WORKDIR}/llvm-install"
@@ -42,8 +41,7 @@ def get_llvm_arch(bb, d, arch_var):
     elif re.match('mips(isa|)(32|64|)(r6|)(el|)$', a): return 'Mips'
     elif re.match('p(pc|owerpc)(|64)', a):             return 'PowerPC'
     else:
-        bb.error("cannot map '%s' to a supported llvm architecture" % a)
-    return ""
+        raise bb.parse.SkipRecipe("Cannot map '%s' to a supported LLVM architecture" % a)
 
 def get_llvm_target_arch(bb, d):
     return get_llvm_arch(bb, d, 'TARGET_ARCH')
@@ -53,6 +51,9 @@ def get_llvm_target_arch(bb, d):
 LLVM_TARGETS ?= "${@get_llvm_target_arch(bb, d)}"
 LLVM_TARGETS_prepend_x86 = "AMDGPU;"
 LLVM_TARGETS_prepend_x86-64 = "AMDGPU;"
+
+ARM_INSTRUCTION_SET_armv5 = "arm"
+ARM_INSTRUCTION_SET_armv4t = "arm"
 
 EXTRA_OECMAKE += "-DLLVM_ENABLE_ASSERTIONS=OFF \
                   -DLLVM_ENABLE_EXPENSIVE_CHECKS=OFF \
@@ -67,12 +68,12 @@ EXTRA_OECMAKE += "-DLLVM_ENABLE_ASSERTIONS=OFF \
 
 EXTRA_OECMAKE_append_class-target = "\
                   -DCMAKE_CROSSCOMPILING:BOOL=ON \
-                  -DLLVM_TABLEGEN=${STAGING_BINDIR_NATIVE}/llvm-tblgen \
+                  -DLLVM_TABLEGEN=${STAGING_BINDIR_NATIVE}/llvm-tblgen${PV} \
                  "
 
 EXTRA_OECMAKE_append_class-nativesdk = "\
                   -DCMAKE_CROSSCOMPILING:BOOL=ON \
-                  -DLLVM_TABLEGEN=${STAGING_BINDIR_NATIVE}/llvm-tblgen \
+                  -DLLVM_TABLEGEN=${STAGING_BINDIR_NATIVE}/llvm-tblgen${PV} \
                  "
 
 do_configure_prepend() {
@@ -87,12 +88,12 @@ do_compile() {
 }
 
 do_compile_class-native() {
-	NINJA_STATUS="[%p] " ninja -v ${PARALLEL_MAKE} llvm-tblgen
+	NINJA_STATUS="[%p] " ninja -v ${PARALLEL_MAKE} llvm-config llvm-tblgen
 }
 
 do_install() {
 	NINJA_STATUS="[%p] " DESTDIR=${LLVM_INSTALL_DIR} ninja -v install
-	install -D -m 0755 ${B}/NATIVE/bin/llvm-config ${D}${libdir}/${LLVM_DIR}/llvm-config-host
+	install -D -m 0755 ${B}/bin/llvm-config ${D}${libdir}/${LLVM_DIR}/llvm-config
 
 	install -d ${D}${bindir}/${LLVM_DIR}
 	cp -r ${LLVM_INSTALL_DIR}${bindir}/* ${D}${bindir}/${LLVM_DIR}/
@@ -121,7 +122,9 @@ do_install() {
 	rm -rf ${D}${libdir}/${LLVM_DIR}/libLTO.so
 }
 do_install_class-native() {
-	install -D -m 0755 ${B}/bin/llvm-tblgen ${D}${bindir}/llvm-tblgen
+	install -D -m 0755 ${B}/bin/llvm-tblgen ${D}${bindir}/llvm-tblgen${PV}
+	install -D -m 0755 ${B}/bin/llvm-config ${D}${bindir}/llvm-config${PV}
+	install -D -m 0755 ${B}/lib/libLLVM-${PV}.so ${D}${libdir}/libLLVM-${PV}.so
 }
 
 PACKAGES += "${PN}-bugpointpasses ${PN}-llvmhello"
@@ -134,14 +137,14 @@ FILES_${PN}-dbg = " \
     ${libdir}/${LLVM_DIR}/.debug/BugpointPasses.so \
     ${libdir}/${LLVM_DIR}/.debug/LLVMHello.so \
     ${libdir}/${LLVM_DIR}/.debug/libLTO.so* \
-    ${libdir}/${LLVM_DIR}/.debug/llvm-config-host \
+    ${libdir}/${LLVM_DIR}/.debug/llvm-config \
     /usr/src/debug \
 "
 
 FILES_${PN}-dev = " \
     ${bindir}/${LLVM_DIR} \
     ${includedir}/${LLVM_DIR} \
-    ${libdir}/${LLVM_DIR}/llvm-config-host \
+    ${libdir}/${LLVM_DIR}/llvm-config \
 "
 
 RRECOMMENDS_${PN}-dev += "${PN}-bugpointpasses ${PN}-llvmhello"

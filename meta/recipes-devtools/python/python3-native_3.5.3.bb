@@ -24,6 +24,7 @@ ${DISTRO_SRC_URI} \
 file://sysconfig.py-add-_PYTHON_PROJECT_SRC.patch \
 file://setup.py-check-cross_compiling-when-get-FLAGS.patch \
 file://0001-Do-not-use-the-shell-version-of-python-config-that-w.patch \
+file://support_SOURCE_DATE_EPOCH_in_py_compile.patch \
 "
 
 SRC_URI[md5sum] = "57d1f8bfbabf4f2500273fb0706e6f21"
@@ -43,7 +44,8 @@ inherit native
 
 require python-native-${PYTHON_MAJMIN}-manifest.inc
 
-EXTRA_OECONF_append = " --bindir=${bindir}/${PN} --without-ensurepip"
+# uninative may be used on pre glibc 2.25 systems which don't have getentropy
+EXTRA_OECONF_append = " --bindir=${bindir}/${PN} --without-ensurepip ac_cv_func_getentropy=no"
 
 EXTRA_OEMAKE = '\
   LIBC="" \
@@ -58,6 +60,7 @@ PYTHONLSBOPTS = ""
 
 do_configure_append() {
 	autoreconf --verbose --install --force --exclude=autopoint ../Python-${PV}/Modules/_ctypes/libffi
+	sed -i -e 's,#define HAVE_GETRANDOM 1,/\* #undef HAVE_GETRANDOM \*/,' ${B}/pyconfig.h
 }
 
 do_install() {
@@ -77,3 +80,5 @@ do_install() {
 	# Tests are large and we don't need them in the native sysroot
 	rm ${D}${libdir}/python${PYTHON_MAJMIN}/test -rf
 }
+
+RPROVIDES += "python3-misc-native"

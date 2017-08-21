@@ -18,11 +18,6 @@
 #   files under exec_prefix
 
 
-# unsafe-references-in-binaries requires prelink-rtld from
-# prelink-native, but we don't want this DEPENDS for -native builds
-QADEPENDS = "prelink-native"
-QADEPENDS_class-native = ""
-QADEPENDS_class-nativesdk = ""
 QA_SANE = "True"
 
 # Elect whether a given type of error is a warning or error, they may
@@ -389,71 +384,6 @@ def package_qa_check_perm(path,name,d, elf, messages):
     Check the permission of files
     """
     return
-
-QAPATHTEST[unsafe-references-in-scripts] = "package_qa_check_unsafe_references_in_scripts"
-def package_qa_check_unsafe_references_in_scripts(path, name, d, elf, messages):
-    """
-    Warn if scripts in base_[bindir|sbindir|libdir] reference files under exec_prefix
-    """
-    if unsafe_references_skippable(path, name, d):
-        return
-
-    if not elf:
-        import stat
-        import subprocess
-        pn = d.getVar('PN')
-
-        # Ensure we're checking an executable script
-        statinfo = os.stat(path)
-        if bool(statinfo.st_mode & stat.S_IXUSR):
-            # grep shell scripts for possible references to /exec_prefix/
-            exec_prefix = d.getVar('exec_prefix')
-            statement = "grep -e '%s/[^ :]\{1,\}/[^ :]\{1,\}' %s > /dev/null" % (exec_prefix, path)
-            if subprocess.call(statement, shell=True) == 0:
-                error_msg = pn + ": Found a reference to %s/ in %s" % (exec_prefix, path)
-                package_qa_handle_error("unsafe-references-in-scripts", error_msg, d)
-                error_msg = "Shell scripts in base_bindir and base_sbindir should not reference anything in exec_prefix"
-                package_qa_handle_error("unsafe-references-in-scripts", error_msg, d)
-
-def unsafe_references_skippable(path, name, d):
-    if bb.data.inherits_class('native', d) or bb.data.inherits_class('nativesdk', d):
-        return True
-
-    if "-dbg" in name or "-dev" in name:
-        return True
-
-    # Other package names to skip:
-    if name.startswith("kernel-module-"):
-        return True
-
-    # Skip symlinks
-    if os.path.islink(path):
-        return True
-
-    # Skip unusual rootfs layouts which make these tests irrelevant
-    exec_prefix = d.getVar('exec_prefix')
-    if exec_prefix == "":
-        return True
-
-    pkgdest = d.getVar('PKGDEST')
-    pkgdest = pkgdest + "/" + name
-    pkgdest = os.path.abspath(pkgdest)
-    base_bindir = pkgdest + d.getVar('base_bindir')
-    base_sbindir = pkgdest + d.getVar('base_sbindir')
-    base_libdir = pkgdest + d.getVar('base_libdir')
-    bindir = pkgdest + d.getVar('bindir')
-    sbindir = pkgdest + d.getVar('sbindir')
-    libdir = pkgdest + d.getVar('libdir')
-
-    if base_bindir == bindir and base_sbindir == sbindir and base_libdir == libdir:
-        return True
-
-    # Skip files not in base_[bindir|sbindir|libdir]
-    path = os.path.abspath(path)
-    if not (base_bindir in path or base_sbindir in path or base_libdir in path):
-        return True
-
-    return False
 
 QAPATHTEST[arch] = "package_qa_check_arch"
 def package_qa_check_arch(path,name,d, elf, messages):
@@ -1153,8 +1083,6 @@ python do_package_qa () {
                continue
             if w in testmatrix and testmatrix[w] in g:
                 warnchecks.append(g[testmatrix[w]])
-            if w == 'unsafe-references-in-binaries':
-                oe.utils.write_ld_so_conf(d)
 
         errorchecks = []
         for e in (d.getVar("ERROR_QA") or "").split():
@@ -1162,8 +1090,6 @@ python do_package_qa () {
                continue
             if e in testmatrix and testmatrix[e] in g:
                 errorchecks.append(g[testmatrix[e]])
-            if e == 'unsafe-references-in-binaries':
-                oe.utils.write_ld_so_conf(d)
         return warnchecks, errorchecks
 
     for package in packages:

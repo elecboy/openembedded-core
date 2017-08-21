@@ -16,6 +16,7 @@ file://130-readline-setup.patch \
 file://150-fix-setupterm.patch \
 file://0001-h2py-Fix-issue-13032-where-it-fails-with-UnicodeDeco.patch \
 file://tweak-MULTIARCH-for-powerpc-linux-gnuspe.patch \
+file://support_SOURCE_DATE_EPOCH_in_py_compile.patch \
 ${DISTRO_SRC_URI} \
 "
 
@@ -38,6 +39,7 @@ SRC_URI += "\
             file://upstream-random-fixes.patch \
             file://0001-Issue-21272-Use-_sysconfigdata.py-to-initialize-dist.patch \
             file://Fix-29519-weakref-spewing-exceptions-during-interp-f.patch \
+            file://pass-missing-libraries-to-Extension-for-mul.patch \
            "
 SRC_URI[md5sum] = "57d1f8bfbabf4f2500273fb0706e6f21"
 SRC_URI[sha256sum] = "eefe2ad6575855423ab630f5b51a8ef6e5556f774584c06beab4926f930ddbb0"
