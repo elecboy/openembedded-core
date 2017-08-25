@@ -11,25 +11,27 @@ KBRANCH_qemux86  ?= "standard/base"
 KBRANCH_qemux86-64 ?= "standard/base"
 KBRANCH_qemumips64 ?= "standard/mti-malta64"
 
-SRCREV_machine_qemuarm ?= "f100a3d840596ac0dc47416336f34d8bf7b5ffa8"
-SRCREV_machine_qemuarm64 ?= "e2bea2e96fcbbbb9b1efc3bc7505ac42e39bb5c0"
-SRCREV_machine_qemumips ?= "4005321dfa890df693c12e902e48fd0dde88fee7"
-SRCREV_machine_qemuppc ?= "1e29490accfb0547e3a854ac6ec9a6754cd47204"
-SRCREV_machine_qemux86 ?= "e2bea2e96fcbbbb9b1efc3bc7505ac42e39bb5c0"
-SRCREV_machine_qemux86-64 ?= "e2bea2e96fcbbbb9b1efc3bc7505ac42e39bb5c0"
-SRCREV_machine_qemumips64 ?= "87c0f4d5bec646565e493d39bf57c3500151ed68"
-SRCREV_machine ?= "e2bea2e96fcbbbb9b1efc3bc7505ac42e39bb5c0"
-SRCREV_meta ?= "9f9c9a66ef3452343586adf150137967e955d71a"
+SRCREV_machine_qemuarm ?= "dc7fc6edebaa6d20967c953a2cd27bac5e955463"
+SRCREV_machine_qemuarm64 ?= "d09f2ce584d60ecb7890550c22a80c48b83c2e19"
+SRCREV_machine_qemumips ?= "ff11a70047bbab2c801f9b4f7b9d4bc1d38dbed1"
+SRCREV_machine_qemuppc ?= "d09f2ce584d60ecb7890550c22a80c48b83c2e19"
+SRCREV_machine_qemux86 ?= "d09f2ce584d60ecb7890550c22a80c48b83c2e19"
+SRCREV_machine_qemux86-64 ?= "d09f2ce584d60ecb7890550c22a80c48b83c2e19"
+SRCREV_machine_qemumips64 ?= "a4d6ef2c5428e57f7f9982d230b09459683ddb1d"
+SRCREV_machine ?= "d09f2ce584d60ecb7890550c22a80c48b83c2e19"
+SRCREV_meta ?= "edb42d48052dee4dbc3ed9d5e1e39c1375e85fe0"
 
-SRC_URI = "git://git.yoctoproject.org/linux-yocto-4.1.git;name=machine;branch=${KBRANCH}; \
-           git://git.yoctoproject.org/yocto-kernel-cache;type=kmeta;name=meta;branch=yocto-4.1;destsuffix=${KMETA}"
+SRC_URI = "git://git.yoctoproject.org/linux-yocto-4.12.git;name=machine;branch=${KBRANCH}; \
+           git://git.yoctoproject.org/yocto-kernel-cache;type=kmeta;name=meta;branch=yocto-4.12;destsuffix=${KMETA}"
 
-LINUX_VERSION ?= "4.1.42"
+LINUX_VERSION ?= "4.12.7"
 
 PV = "${LINUX_VERSION}+git${SRCPV}"
 
 KMETA = "kernel-meta"
 KCONF_BSP_AUDIT_LEVEL = "2"
+
+KERNEL_DEVICETREE_qemuarm = "versatile-pb.dtb"
 
 COMPATIBLE_MACHINE = "qemuarm|qemuarm64|qemux86|qemuppc|qemumips|qemumips64|qemux86-64"
 

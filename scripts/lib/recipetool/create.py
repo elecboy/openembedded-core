@@ -422,6 +422,9 @@ def create_recipe(args):
     source = args.source
     srcsubdir = ''
     srcrev = '${AUTOREV}'
+    srcbranch = ''
+    storeTagName = ''
+    pv_srcpv = False
 
     if os.path.isfile(source):
         source = 'file://%s' % os.path.abspath(source)
@@ -439,6 +442,27 @@ def create_recipe(args):
         if res:
             srcrev = res.group(1)
             srcuri = rev_re.sub('', srcuri)
+
+        # Check whether users provides any branch info in fetchuri.
+        # If true, we will skip all branch checking process to honor all user's input.
+        scheme, network, path, user, passwd, params = bb.fetch2.decodeurl(fetchuri)
+        srcbranch = params.get('branch')
+        nobranch = params.get('nobranch')
+        tag = params.get('tag')
+        if not srcbranch and not nobranch and srcrev != '${AUTOREV}':
+            # Append nobranch=1 in the following conditions:
+            # 1. User did not set 'branch=' in srcuri, and
+            # 2. User did not set 'nobranch=1' in srcuri, and
+            # 3. Source revision is not '${AUTOREV}'
+            params['nobranch'] = '1'
+        if tag:
+            # Keep a copy of tag and append nobranch=1 then remove tag from URL.
+            # Bitbake fetcher unable to fetch when {AUTOREV} and tag is set at the same time.
+            # We will re-introduce tag argument after bitbake fetcher process is complete.
+            storeTagName = params['tag']
+            params['nobranch'] = '1'
+            del params['tag']
+        fetchuri = bb.fetch2.encodeurl((scheme, network, path, user, passwd, params))
 
         tmpparent = tinfoil.config_data.getVar('BASE_WORKDIR')
         bb.utils.mkdirhier(tmpparent)
@@ -474,6 +498,52 @@ def create_recipe(args):
             # If we've got to here then there's no source so we might as well give up
             logger.error('URL %s resulted in an empty source tree' % fetchuri)
             sys.exit(1)
+
+        # We need this checking mechanism to improve the recipe created by recipetool and devtool
+        # is able to parse and build by bitbake.
+        # If there is no input for branch name, then check for branch name with SRCREV provided.
+        if not srcbranch and not nobranch and srcrev and (srcrev != '${AUTOREV}'):
+            try:
+                cmd = 'git branch -r --contains'
+                check_branch, check_branch_err = bb.process.run('%s %s' % (cmd, srcrev), cwd=srctree)
+            except bb.process.ExecutionError as err:
+                logger.error(str(err))
+                sys.exit(1)
+            get_branch = [x.strip() for x in check_branch.splitlines()]
+            # Remove HEAD reference point and drop remote prefix
+            get_branch = [x.split('/', 1)[1] for x in get_branch if not x.startswith('origin/HEAD')]
+            if 'master' in get_branch:
+                # If it is master, we do not need to append 'branch=master' as this is default.
+                # Even with the case where get_branch has multiple objects, if 'master' is one
+                # of them, we should default take from 'master'
+                srcbranch = ''
+            elif len(get_branch) == 1:
+                # If 'master' isn't in get_branch and get_branch contains only ONE object, then store result into 'srcbranch'
+                srcbranch = get_branch[0]
+            else:
+                # If get_branch contains more than one objects, then display error and exit.
+                mbrch = '\n  ' + '\n  '.join(get_branch)
+                logger.error('Revision %s was found on multiple branches: %s\nPlease provide the correct branch in the source URL with ;branch=<branch> (and ensure you use quotes around the URL to avoid the shell interpreting the ";")' % (srcrev, mbrch))
+                sys.exit(1)
+
+        # Since we might have a value in srcbranch, we need to
+        # recontruct the srcuri to include 'branch' in params.
+        if srcbranch:
+            scheme, network, path, user, passwd, params = bb.fetch2.decodeurl(srcuri)
+            params['branch'] = srcbranch
+            srcuri = bb.fetch2.encodeurl((scheme, network, path, user, passwd, params))
+
+        if storeTagName:
+            # Re-introduced tag variable from storeTagName
+            # Check srcrev using tag and check validity of the tag
+            cmd = ('git rev-parse --verify %s' % (storeTagName))
+            try:
+                check_tag, check_tag_err = bb.process.run('%s' % cmd, cwd=srctree)
+                srcrev = check_tag.split()[0]
+            except bb.process.ExecutionError as err:
+                logger.error(str(err))
+                logger.error("Possibly wrong tag name is provided")
+                sys.exit(1)
 
         if os.path.exists(os.path.join(srctree, '.gitmodules')) and srcuri.startswith('git://'):
             srcuri = 'gitsm://' + srcuri[6:]
@@ -548,9 +618,10 @@ def create_recipe(args):
     # We need a blank line here so that patch_recipe_lines can rewind before the LICENSE comments
     lines_before.append('')
 
-    handled = []
-    licvalues = handle_license_vars(srctree_use, lines_before, handled, extravalues, tinfoil.config_data)
+    # We'll come back and replace this later in handle_license_vars()
+    lines_before.append('##LICENSE_PLACEHOLDER##')
 
+    handled = []
     classes = []
 
     # FIXME This is kind of a hack, we probably ought to be using bitbake to do this
@@ -586,13 +657,6 @@ def create_recipe(args):
     else:
         realpv = None
 
-    if srcuri and not realpv or not pn:
-        name_pn, name_pv = determine_from_url(srcuri)
-        if name_pn and not pn:
-            pn = name_pn
-        if name_pv and not realpv:
-            realpv = name_pv
-
     if not srcuri:
         lines_before.append('# No information for SRC_URI yet (only an external source tree was specified)')
     lines_before.append('SRC_URI = "%s"' % srcuri)
@@ -601,7 +665,9 @@ def create_recipe(args):
     if srcuri and supports_srcrev(srcuri):
         lines_before.append('')
         lines_before.append('# Modify these as desired')
+        # Note: we have code to replace realpv further down if it gets set to some other value
         lines_before.append('PV = "%s+git${SRCPV}"' % (realpv or '1.0'))
+        pv_srcpv = True
         if not args.autorev and srcrev == '${AUTOREV}':
             if os.path.exists(os.path.join(srctree, '.git')):
                 (stdout, _) = bb.process.run('git rev-parse HEAD', cwd=srctree)
@@ -679,6 +745,15 @@ def create_recipe(args):
             if '_' in pn:
                 pn = pn.replace('_', '-')
 
+    if srcuri and not realpv or not pn:
+        name_pn, name_pv = determine_from_url(srcuri)
+        if name_pn and not pn:
+            pn = name_pn
+        if name_pv and not realpv:
+            realpv = name_pv
+
+    licvalues = handle_license_vars(srctree_use, lines_before, handled, extravalues, tinfoil.config_data)
+
     if not outfile:
         if not pn:
             log_error_cond('Unable to determine short program name from source tree - please specify name with -N/--name or output file name with -o/--outfile', args.devtool)
@@ -728,10 +803,11 @@ def create_recipe(args):
                 skipblank = True
                 continue
         elif line.startswith('SRC_URI = '):
-            if realpv:
+            if realpv and not pv_srcpv:
                 line = line.replace(realpv, '${PV}')
         elif line.startswith('PV = '):
             if realpv:
+                # Replace the first part of the PV value
                 line = re.sub('"[^+]*\+', '"%s+' % realpv, line)
         lines_before.append(line)
 
@@ -770,9 +846,6 @@ def create_recipe(args):
     outlines.extend(lines_after)
 
     if extravalues:
-        if 'LICENSE' in extravalues and not licvalues:
-            # Don't blow away 'CLOSED' value that comments say we set
-            del extravalues['LICENSE']
         _, outlines = oe.recipeutils.patch_recipe_lines(outlines, extravalues, trailing_newline=False)
 
     if args.extract_to:
@@ -816,55 +889,94 @@ def check_single_file(fn, fetchuri):
             logger.error('Fetching "%s" returned a single HTML page - check the URL is correct and functional' % fetchuri)
             sys.exit(1)
 
+def split_value(value):
+    if isinstance(value, str):
+        return value.split()
+    else:
+        return value
 
 def handle_license_vars(srctree, lines_before, handled, extravalues, d):
+    lichandled = [x for x in handled if x[0] == 'license']
+    if lichandled:
+        # Someone else has already handled the license vars, just return their value
+        return lichandled[0][1]
+
     licvalues = guess_license(srctree, d)
+    licenses = []
     lic_files_chksum = []
     lic_unknown = []
+    lines = []
     if licvalues:
-        licenses = []
         for licvalue in licvalues:
             if not licvalue[0] in licenses:
                 licenses.append(licvalue[0])
             lic_files_chksum.append('file://%s;md5=%s' % (licvalue[1], licvalue[2]))
             if licvalue[0] == 'Unknown':
                 lic_unknown.append(licvalue[1])
-        lines_before.append('# WARNING: the following LICENSE and LIC_FILES_CHKSUM values are best guesses - it is')
-        lines_before.append('# your responsibility to verify that the values are complete and correct.')
-        if len(licvalues) > 1:
-            lines_before.append('#')
-            lines_before.append('# NOTE: multiple licenses have been detected; they have been separated with &')
-            lines_before.append('# in the LICENSE value for now since it is a reasonable assumption that all')
-            lines_before.append('# of the licenses apply. If instead there is a choice between the multiple')
-            lines_before.append('# licenses then you should change the value to separate the licenses with |')
-            lines_before.append('# instead of &. If there is any doubt, check the accompanying documentation')
-            lines_before.append('# to determine which situation is applicable.')
         if lic_unknown:
-            lines_before.append('#')
-            lines_before.append('# The following license files were not able to be identified and are')
-            lines_before.append('# represented as "Unknown" below, you will need to check them yourself:')
+            lines.append('#')
+            lines.append('# The following license files were not able to be identified and are')
+            lines.append('# represented as "Unknown" below, you will need to check them yourself:')
             for licfile in lic_unknown:
-                lines_before.append('#   %s' % licfile)
-            lines_before.append('#')
-    else:
-        lines_before.append('# Unable to find any files that looked like license statements. Check the accompanying')
-        lines_before.append('# documentation and source headers and set LICENSE and LIC_FILES_CHKSUM accordingly.')
-        lines_before.append('#')
-        lines_before.append('# NOTE: LICENSE is being set to "CLOSED" to allow you to at least start building - if')
-        lines_before.append('# this is not accurate with respect to the licensing of the software being built (it')
-        lines_before.append('# will not be in most cases) you must specify the correct value before using this')
-        lines_before.append('# recipe for anything other than initial testing/development!')
-        licenses = ['CLOSED']
-    pkg_license = extravalues.pop('LICENSE', None)
-    if pkg_license:
+                lines.append('#   %s' % licfile)
+
+    extra_license = split_value(extravalues.pop('LICENSE', []))
+    if '&' in extra_license:
+        extra_license.remove('&')
+    if extra_license:
         if licenses == ['Unknown']:
-            lines_before.append('# NOTE: The following LICENSE value was determined from the original package metadata')
-            licenses = [pkg_license]
+            licenses = extra_license
         else:
-            lines_before.append('# NOTE: Original package metadata indicates license is: %s' % pkg_license)
-    lines_before.append('LICENSE = "%s"' % ' & '.join(licenses))
-    lines_before.append('LIC_FILES_CHKSUM = "%s"' % ' \\\n                    '.join(lic_files_chksum))
-    lines_before.append('')
+            for item in extra_license:
+                if item not in licenses:
+                    licenses.append(item)
+    extra_lic_files_chksum = split_value(extravalues.pop('LIC_FILES_CHKSUM', []))
+    for item in extra_lic_files_chksum:
+        if item not in lic_files_chksum:
+            lic_files_chksum.append(item)
+
+    if lic_files_chksum:
+        # We are going to set the vars, so prepend the standard disclaimer
+        lines.insert(0, '# WARNING: the following LICENSE and LIC_FILES_CHKSUM values are best guesses - it is')
+        lines.insert(1, '# your responsibility to verify that the values are complete and correct.')
+    else:
+        # Without LIC_FILES_CHKSUM we set LICENSE = "CLOSED" to allow the
+        # user to get started easily
+        lines.append('# Unable to find any files that looked like license statements. Check the accompanying')
+        lines.append('# documentation and source headers and set LICENSE and LIC_FILES_CHKSUM accordingly.')
+        lines.append('#')
+        lines.append('# NOTE: LICENSE is being set to "CLOSED" to allow you to at least start building - if')
+        lines.append('# this is not accurate with respect to the licensing of the software being built (it')
+        lines.append('# will not be in most cases) you must specify the correct value before using this')
+        lines.append('# recipe for anything other than initial testing/development!')
+        licenses = ['CLOSED']
+
+    if extra_license and sorted(licenses) != sorted(extra_license):
+        lines.append('# NOTE: Original package / source metadata indicates license is: %s' % ' & '.join(extra_license))
+
+    if len(licenses) > 1:
+        lines.append('#')
+        lines.append('# NOTE: multiple licenses have been detected; they have been separated with &')
+        lines.append('# in the LICENSE value for now since it is a reasonable assumption that all')
+        lines.append('# of the licenses apply. If instead there is a choice between the multiple')
+        lines.append('# licenses then you should change the value to separate the licenses with |')
+        lines.append('# instead of &. If there is any doubt, check the accompanying documentation')
+        lines.append('# to determine which situation is applicable.')
+
+    lines.append('LICENSE = "%s"' % ' & '.join(licenses))
+    lines.append('LIC_FILES_CHKSUM = "%s"' % ' \\\n                    '.join(lic_files_chksum))
+    lines.append('')
+
+    # Replace the placeholder so we get the values in the right place in the recipe file
+    try:
+        pos = lines_before.index('##LICENSE_PLACEHOLDER##')
+    except ValueError:
+        pos = -1
+    if pos == -1:
+        lines_before.extend(lines)
+    else:
+        lines_before[pos:pos+1] = lines
+
     handled.append(('license', licvalues))
     return licvalues
 
@@ -1169,5 +1281,6 @@ def register_commands(subparsers):
     parser_create.add_argument('--keep-temp', action="store_true", help='Keep temporary directory (for debugging)')
     parser_create.add_argument('--fetch-dev', action="store_true", help='For npm, also fetch devDependencies')
     parser_create.add_argument('--devtool', action="store_true", help=argparse.SUPPRESS)
+    parser_create.add_argument('--mirrors', action="store_true", help='Enable PREMIRRORS and MIRRORS for source tree fetching (disabled by default).')
     parser_create.set_defaults(func=create_recipe)
 
