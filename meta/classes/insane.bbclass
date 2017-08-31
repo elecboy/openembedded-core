@@ -16,7 +16,7 @@
 #   into exec_prefix
 #  -Check that scripts in base_[bindir|sbindir|libdir] do not reference
 #   files under exec_prefix
-
+#  -Check if the package name is upper case
 
 QA_SANE = "True"
 
@@ -27,7 +27,7 @@ WARN_QA ?= "ldflags useless-rpaths rpaths staticdev libdir xorg-driver-abi \
             installed-vs-shipped compile-host-path install-host-path \
             pn-overrides infodir build-deps \
             unknown-configure-option symlink-to-sysroot multilib \
-            invalid-packageconfig host-user-contaminated \
+            invalid-packageconfig host-user-contaminated uppercase-pn \
             "
 ERROR_QA ?= "dev-so debug-deps dev-deps debug-files arch pkgconfig la \
             perms dep-cmp pkgvarcheck perm-config perm-line perm-link \
@@ -1178,12 +1178,10 @@ Rerun configure task after fixing this.""")
     cnf = d.getVar('EXTRA_OECONF') or ""
     if "gettext" not in d.getVar('P') and "gcc-runtime" not in d.getVar('P') and "--disable-nls" not in cnf:
         ml = d.getVar("MLPREFIX") or ""
-        if bb.data.inherits_class('native', d) or bb.data.inherits_class('cross', d) or bb.data.inherits_class('crosssdk', d) or bb.data.inherits_class('nativesdk', d):
-            gt = "gettext-native"
-        elif bb.data.inherits_class('cross-canadian', d):
+        if bb.data.inherits_class('cross-canadian', d):
             gt = "nativesdk-gettext"
         else:
-            gt = "virtual/" + ml + "gettext"
+            gt = "gettext-native"
         deps = bb.utils.explode_deps(d.getVar('DEPENDS') or "")
         if gt not in deps:
             for config in configs:
@@ -1248,6 +1246,8 @@ do_configure[postfuncs] += "do_qa_configure "
 do_unpack[postfuncs] += "do_qa_unpack"
 
 python () {
+    import re
+    
     tests = d.getVar('ALL_QA').split()
     if "desktop" in tests:
         d.appendVar("PACKAGE_DEPENDS", " desktop-file-utils-native")
@@ -1274,6 +1274,9 @@ python () {
     if pn in overrides:
         msg = 'Recipe %s has PN of "%s" which is in OVERRIDES, this can result in unexpected behaviour.' % (d.getVar("FILE"), pn)
         package_qa_handle_error("pn-overrides", msg, d)
+    prog = re.compile('[A-Z]')
+    if prog.search(pn):
+        package_qa_handle_error("uppercase-pn", 'PN: %s is upper case, this can result in unexpected behavior.' % pn, d)
 
     issues = []
     if (d.getVar('PACKAGES') or "").split():
