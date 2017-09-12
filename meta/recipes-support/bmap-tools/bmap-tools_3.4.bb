@@ -10,16 +10,13 @@ LICENSE = "GPLv2"
 LIC_FILES_CHKSUM = "file://COPYING;md5=b234ee4d69f5fce4486a80fdaf4a4263"
 
 SRC_URI = "git://github.com/01org/bmap-tools.git"
-SRCREV = "96702a869220ab20830db916ec4ac595e1d97f92"
+SRCREV = "9dad724104df265442226972a1e310813f9ffcba"
 
 S = "${WORKDIR}/git"
 
 RDEPENDS_${PN} = "python-core python-compression python-mmap"
 
-inherit setuptools
+inherit python3native
+inherit setuptools3
 
 BBCLASSEXTEND = "native"
-
-do_install_append_class-native() {
-    sed -i -e 's|^#!.*/usr/bin/env python|#! /usr/bin/env nativepython|' ${D}${bindir}/bmaptool
-}

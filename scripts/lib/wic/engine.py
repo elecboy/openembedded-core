@@ -234,7 +234,7 @@ def wic_list(args, scripts_path):
 
 
 class Disk:
-    def __init__(self, imagepath, native_sysroot, fstypes=('fat',)):
+    def __init__(self, imagepath, native_sysroot, fstypes=('fat', 'ext')):
         self.imagepath = imagepath
         self.native_sysroot = native_sysroot
         self.fstypes = fstypes
@@ -280,7 +280,7 @@ class Disk:
     def __getattr__(self, name):
         """Get path to the executable in a lazy way."""
         if name in ("mdir", "mcopy", "mdel", "mdeltree", "sfdisk", "e2fsck",
-                    "resize2fs", "mkswap", "mkdosfs"):
+                    "resize2fs", "mkswap", "mkdosfs", "debugfs"):
             aname = "_%s" % name
             if aname not in self.__dict__:
                 setattr(self, aname, find_executable(name, self.paths))
@@ -314,33 +314,48 @@ class Disk:
                     seek=self.partitions[pnum].start)
 
     def dir(self, pnum, path):
-        return exec_cmd("{} -i {} ::{}".format(self.mdir,
-                                               self._get_part_image(pnum),
-                                               path))
+        if self.partitions[pnum].fstype.startswith('ext'):
+            return exec_cmd("{} {} -R 'ls -l {}'".format(self.debugfs,
+                                                         self._get_part_image(pnum),
+                                                         path), as_shell=True)
+        else: # fat
+            return exec_cmd("{} -i {} ::{}".format(self.mdir,
+                                                   self._get_part_image(pnum),
+                                                   path))
 
     def copy(self, src, pnum, path):
         """Copy partition image into wic image."""
-        cmd = "{} -i {} -snop {} ::{}".format(self.mcopy,
-                                              self._get_part_image(pnum),
-                                              src, path)
-        exec_cmd(cmd)
+        if self.partitions[pnum].fstype.startswith('ext'):
+            cmd = "echo -e 'cd {}\nwrite {} {}' | {} -w {}".\
+                      format(path, src, os.path.basename(src),
+                             self.debugfs, self._get_part_image(pnum))
+        else: # fat
+            cmd = "{} -i {} -snop {} ::{}".format(self.mcopy,
+                                                  self._get_part_image(pnum),
+                                                  src, path)
+        exec_cmd(cmd, as_shell=True)
         self._put_part_image(pnum)
 
     def remove(self, pnum, path):
         """Remove files/dirs from the partition."""
         partimg = self._get_part_image(pnum)
-        cmd = "{} -i {} ::{}".format(self.mdel, partimg, path)
-        try:
-            exec_cmd(cmd)
-        except WicError as err:
-            if "not found" in str(err) or "non empty" in str(err):
-                # mdel outputs 'File ... not found' or 'directory .. non empty"
-                # try to use mdeltree as path could be a directory
-                cmd = "{} -i {} ::{}".format(self.mdeltree,
-                                             partimg, path)
+        if self.partitions[pnum].fstype.startswith('ext'):
+            exec_cmd("{} {} -wR 'rm {}'".format(self.debugfs,
+                                                self._get_part_image(pnum),
+                                                path), as_shell=True)
+        else: # fat
+            cmd = "{} -i {} ::{}".format(self.mdel, partimg, path)
+            try:
                 exec_cmd(cmd)
-            else:
-                raise err
+            except WicError as err:
+                if "not found" in str(err) or "non empty" in str(err):
+                    # mdel outputs 'File ... not found' or 'directory .. non empty"
+                    # try to use mdeltree as path could be a directory
+                    cmd = "{} -i {} ::{}".format(self.mdeltree,
+                                                 partimg, path)
+                    exec_cmd(cmd)
+                else:
+                    raise err
         self._put_part_image(pnum)
 
     def write(self, target, expand):

@@ -920,6 +920,7 @@ part /etc --source rootfs --ondisk mmcblk0 --fstype=ext4 --exclude-path bin/ --r
         self.assertNotIn('\nBZIMAGE        ', result.output)
         self.assertNotIn('\nEFI          <DIR>     ', result.output)
 
+    @OETestID(1922)
     def test_mkfs_extraopts(self):
         """Test wks option --mkfs-extraopts for empty and not empty partitions"""
         img = 'core-image-minimal'
@@ -991,3 +992,72 @@ part /etc --source rootfs --ondisk mmcblk0 --fstype=ext4 --exclude-path bin/ --r
                 os.unlink(new_image_path)
             if os.path.exists(image_path + '.bak'):
                 os.rename(image_path + '.bak', image_path)
+
+    def test_wic_ls_ext(self):
+        """Test listing content of the ext partition using 'wic ls'"""
+        self.assertEqual(0, runCmd("wic create wictestdisk "
+                                   "--image-name=core-image-minimal "
+                                   "-D -o %s" % self.resultdir).status)
+        images = glob(self.resultdir + "wictestdisk-*.direct")
+        self.assertEqual(1, len(images))
+
+        sysroot = get_bb_var('RECIPE_SYSROOT_NATIVE', 'wic-tools')
+
+        # list directory content of the second ext4 partition
+        result = runCmd("wic ls %s:2/ -n %s" % (images[0], sysroot))
+        self.assertEqual(0, result.status)
+        self.assertTrue(set(['bin', 'home', 'proc', 'usr', 'var', 'dev', 'lib', 'sbin']).issubset(
+                            set(line.split()[-1] for line in result.output.split('\n') if line)))
+
+    def test_wic_cp_ext(self):
+        """Test copy files and directories to the ext partition."""
+        self.assertEqual(0, runCmd("wic create wictestdisk "
+                                   "--image-name=core-image-minimal "
+                                   "-D -o %s" % self.resultdir).status)
+        images = glob(self.resultdir + "wictestdisk-*.direct")
+        self.assertEqual(1, len(images))
+
+        sysroot = get_bb_var('RECIPE_SYSROOT_NATIVE', 'wic-tools')
+
+        # list directory content of the ext4 partition
+        result = runCmd("wic ls %s:2/ -n %s" % (images[0], sysroot))
+        self.assertEqual(0, result.status)
+        dirs = set(line.split()[-1] for line in result.output.split('\n') if line)
+        self.assertTrue(set(['bin', 'home', 'proc', 'usr', 'var', 'dev', 'lib', 'sbin']).issubset(dirs))
+
+        with NamedTemporaryFile("w", suffix=".wic-cp") as testfile:
+            testfile.write("test")
+
+            # copy file to the partition
+            result = runCmd("wic cp %s %s:2/ -n %s" % (testfile.name, images[0], sysroot))
+            self.assertEqual(0, result.status)
+
+            # check if file is there
+            result = runCmd("wic ls %s:2/ -n %s" % (images[0], sysroot))
+            self.assertEqual(0, result.status)
+            newdirs = set(line.split()[-1] for line in result.output.split('\n') if line)
+            self.assertEqual(newdirs.difference(dirs), set([os.path.basename(testfile.name)]))
+
+    def test_wic_rm_ext(self):
+        """Test removing files from the ext partition."""
+        self.assertEqual(0, runCmd("wic create mkefidisk "
+                                   "--image-name=core-image-minimal "
+                                   "-D -o %s" % self.resultdir).status)
+        images = glob(self.resultdir + "mkefidisk-*.direct")
+        self.assertEqual(1, len(images))
+
+        sysroot = get_bb_var('RECIPE_SYSROOT_NATIVE', 'wic-tools')
+
+        # list directory content of the /etc directory on ext4 partition
+        result = runCmd("wic ls %s:2/etc/ -n %s" % (images[0], sysroot))
+        self.assertEqual(0, result.status)
+        self.assertTrue('fstab' in [line.split()[-1] for line in result.output.split('\n') if line])
+
+        # remove file
+        result = runCmd("wic rm %s:2/etc/fstab -n %s" % (images[0], sysroot))
+        self.assertEqual(0, result.status)
+
+        # check if it's removed
+        result = runCmd("wic ls %s:2/etc/ -n %s" % (images[0], sysroot))
+        self.assertEqual(0, result.status)
+        self.assertTrue('fstab' not in [line.split()[-1] for line in result.output.split('\n') if line])
