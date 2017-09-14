@@ -20,41 +20,36 @@ def get_go_parallel_make(d):
 GO_PARALLEL_BUILD ?= "${@get_go_parallel_make(d)}"
 
 GOROOT_class-native = "${STAGING_LIBDIR_NATIVE}/go"
-GOROOT = "${STAGING_LIBDIR_NATIVE}/${TARGET_SYS}/go"
-GOBIN_FINAL_class-native = "${GOROOT_FINAL}/bin"
-GOBIN_FINAL = "${GOROOT_FINAL}/${GO_BUILD_BINDIR}"
+GOROOT_class-nativesdk = "${STAGING_DIR_TARGET}${libdir}/go"
+GOROOT = "${STAGING_LIBDIR}/go"
+export GOROOT
+export GOROOT_FINAL = "${libdir}/go"
 
-DEPENDS_GOLANG_class-target = "go-cross-${TARGET_ARCH}"
+DEPENDS_GOLANG_class-target = "virtual/${TARGET_PREFIX}go virtual/${TARGET_PREFIX}go-runtime"
 DEPENDS_GOLANG_class-native = "go-native"
+DEPENDS_GOLANG_class-nativesdk = "virtual/${TARGET_PREFIX}go-crosssdk virtual/${TARGET_PREFIX}go-runtime"
 
 DEPENDS_append = " ${DEPENDS_GOLANG}"
 
 export GOBUILDFLAGS ?= "-v"
 GOBUILDFLAGS_prepend_task-compile = "${GO_PARALLEL_BUILD} "
 
-export GOOS = "${TARGET_GOOS}"
-export GOARCH = "${TARGET_GOARCH}"
-export GOARM = "${TARGET_GOARM}"
-export CGO_ENABLED = "1"
-export GOROOT
-export GOROOT_FINAL = "${libdir}/${TARGET_SYS}/go"
-export GOBIN_FINAL
-export GOPKG_FINAL = "${GOROOT_FINAL}/pkg/${GOOS}_${GOARCH}"
-export GOSRC_FINAL = "${GOROOT_FINAL}/src"
-export GO_GCFLAGS = "${TARGET_CFLAGS}"
-export GO_LDFLAGS = "${TARGET_LDFLAGS}"
-export CGO_CFLAGS = "${TARGET_CC_ARCH}${TOOLCHAIN_OPTIONS} ${TARGET_CFLAGS}"
-export CGO_CPPFLAGS = "${TARGET_CPPFLAGS}"
-export CGO_CXXFLAGS = "${TARGET_CC_ARCH}${TOOLCHAIN_OPTIONS} ${TARGET_CXXFLAGS}"
-export CGO_LDFLAGS = "${TARGET_CC_ARCH}${TOOLCHAIN_OPTIONS} ${TARGET_LDFLAGS}"
+export GO = "${HOST_PREFIX}go"
+GOTOOLDIR = "${STAGING_LIBDIR_NATIVE}/${TARGET_SYS}/go/pkg/tool/${BUILD_GOTUPLE}"
+GOTOOLDIR_class-native = "${STAGING_LIBDIR_NATIVE}/go/pkg/tool/${BUILD_GOTUPLE}"
+export GOTOOLDIR
 
-FILES_${PN}-staticdev += "${GOSRC_FINAL}/${GO_IMPORT}"
-FILES_${PN}-staticdev += "${GOPKG_FINAL}/${GO_IMPORT}*"
+export CGO_ENABLED ?= "1"
+export CGO_CFLAGS ?= "${CFLAGS}"
+export CGO_CPPFLAGS ?= "${CPPFLAGS}"
+export CGO_CXXFLAGS ?= "${CXXFLAGS}"
+export CGO_LDFLAGS ?= "${LDFLAGS}"
 
 GO_INSTALL ?= "${GO_IMPORT}/..."
 GO_INSTALL_FILTEROUT ?= "${GO_IMPORT}/vendor/"
 
 B = "${WORKDIR}/build"
+export GOPATH = "${B}"
 
 python go_do_unpack() {
     src_uri = (d.getVar('SRC_URI') or "").split()
@@ -75,7 +70,7 @@ python go_do_unpack() {
 }
 
 go_list_packages() {
-	GOPATH=${B}:${STAGING_LIBDIR}/${TARGET_SYS}/go go list -f '{{.ImportPath}}' ${GOBUILDFLAGS} ${GO_INSTALL} | \
+	${GO} list -f '{{.ImportPath}}' ${GOBUILDFLAGS} ${GO_INSTALL} | \
 		egrep -v '${GO_INSTALL_FILTEROUT}'
 }
 
@@ -84,18 +79,18 @@ go_do_configure() {
 }
 
 go_do_compile() {
-	GOPATH=${B}:${STAGING_LIBDIR}/${TARGET_SYS}/go go env
+	${GO} env
 	if [ -n "${GO_INSTALL}" ]; then
-		GOPATH=${B}:${STAGING_LIBDIR}/${TARGET_SYS}/go go install ${GOBUILDFLAGS} `go_list_packages`
+		${GO} install ${GOBUILDFLAGS} `go_list_packages`
 	fi
 }
 do_compile[cleandirs] = "${B}/bin ${B}/pkg"
 
 go_do_install() {
-	install -d ${D}${GOROOT_FINAL}/src/${GO_IMPORT}
+	install -d ${D}${libdir}/go/src/${GO_IMPORT}
 	tar -C ${S}/src/${GO_IMPORT} -cf - --exclude-vcs . | \
-		tar -C ${D}${GOROOT_FINAL}/src/${GO_IMPORT} --no-same-owner -xf -
-	tar -C ${B} -cf - pkg | tar -C ${D}${GOROOT_FINAL} --no-same-owner -xf -
+		tar -C ${D}${libdir}/go/src/${GO_IMPORT} --no-same-owner -xf -
+	tar -C ${B} -cf - pkg | tar -C ${D}${libdir}/go --no-same-owner -xf -
 
 	if [ -n "`ls ${B}/${GO_BUILD_BINDIR}/`" ]; then
 		install -d ${D}${bindir}
@@ -104,3 +99,6 @@ go_do_install() {
 }
 
 EXPORT_FUNCTIONS do_unpack do_configure do_compile do_install
+
+FILES_${PN}-dev = "${libdir}/go/src"
+FILES_${PN}-staticdev = "${libdir}/go/pkg"
