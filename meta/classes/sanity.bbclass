@@ -702,10 +702,10 @@ def check_sanity_everybuild(status, d):
     if 0 == os.getuid():
         raise_sanity_error("Do not use Bitbake as root.", d)
 
-    # Check the Python version, we now have a minimum of Python 2.7.3
+    # Check the Python version, we now have a minimum of Python 3.4
     import sys
-    if sys.hexversion < 0x020703F0:
-        status.addresult('The system requires at least Python 2.7.3 to run. Please update your Python interpreter.\n')
+    if sys.hexversion < 0x03040000:
+        status.addresult('The system requires at least Python 3.4 to run. Please update your Python interpreter.\n')
 
     # Check the bitbake version meets minimum requirements
     from distutils.version import LooseVersion
@@ -725,6 +725,11 @@ def check_sanity_everybuild(status, d):
     if distro and distro != "nodistro":
         if not ( check_conf_exists("conf/distro/${DISTRO}.conf", d) or check_conf_exists("conf/distro/include/${DISTRO}.inc", d) ):
             status.addresult("DISTRO '%s' not found. Please set a valid DISTRO in your local.conf\n" % d.getVar("DISTRO"))
+
+    # Check that these variables don't use tilde-expansion as we don't do that
+    for v in ("TMPDIR", "DL_DIR", "SSTATE_DIR"):
+        if d.getVar(v).startswith("~"):
+            status.addresult("%s uses ~ but Bitbake will not expand this, use an absolute path or variables." % v)
 
     # Check that DL_DIR is set, exists and is writable. In theory, we should never even hit the check if DL_DIR isn't 
     # set, since so much relies on it being set.

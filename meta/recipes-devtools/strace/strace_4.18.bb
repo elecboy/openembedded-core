@@ -13,6 +13,7 @@ SRC_URI = "${SOURCEFORGE_MIRROR}/strace/strace-${PV}.tar.xz \
            file://0001-Fix-build-when-using-non-glibc-libc-implementation-o.patch \
            file://mips-SIGEMT.patch \
            file://0001-caps-abbrev.awk-fix-gawk-s-path.patch \
+           file://0001-tests-sigaction-Check-for-mips-and-alpha-before-usin.patch \
            "
 
 SRC_URI[md5sum] = "3579b3266bb096cebaefbe2cdb1a3a78"
@@ -42,7 +43,16 @@ do_compile_ptest() {
 
 do_install_ptest() {
 	oe_runmake -C ${TESTDIR} install-ptest BUILDDIR=${B} DESTDIR=${D}${PTEST_PATH} TESTDIR=${TESTDIR}
-	sed -i -e '/^src/s/strace.*[1-9]/ptest/' ${D}/${PTEST_PATH}/${TESTDIR}/Makefile
+	sed -i -e '/^src/s/strace.*[1-9]/ptest/' \
+	    -e 's,--sysroot=${STAGING_DIR_TARGET},,g' \
+	    -e 's|${DEBUG_PREFIX_MAP}||g' \
+	    -e 's:${HOSTTOOLS_DIR}/::g' \
+	    -e 's:${RECIPE_SYSROOT_NATIVE}::g' \
+	    -e 's:${RECIPE_SYSROOT}::g' \
+	    -e 's:${BASE_WORKDIR}/${MULTIMACH_TARGET_SYS}::g' \
+	    -e '/^DEB_CHANGELOGTIME/d' \
+	    -e '/^RPM_CHANGELOGTIME/d' \
+	${D}/${PTEST_PATH}/${TESTDIR}/Makefile
 }
 
 BBCLASSEXTEND = "native"
