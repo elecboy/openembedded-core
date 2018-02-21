@@ -68,16 +68,16 @@ sysroot_stage_all() {
 }
 
 python sysroot_strip () {
-    inhibit_sysroot = d.getVar('INHIBIT_SYSROOT_STRIP', True)
+    inhibit_sysroot = d.getVar('INHIBIT_SYSROOT_STRIP')
     if inhibit_sysroot and oe.types.boolean(inhibit_sysroot):
         return 0
 
-    dstdir = d.getVar('SYSROOT_DESTDIR', True)
-    pn = d.getVar('PN', True)
-    libdir = os.path.abspath(dstdir + os.sep + d.getVar("libdir", True))
-    base_libdir = os.path.abspath(dstdir + os.sep + d.getVar("base_libdir", True))
-    qa_already_stripped = 'already-stripped' in (d.getVar('INSANE_SKIP_' + pn, True) or "").split()
-    strip_cmd = d.getVar("STRIP", True)
+    dstdir = d.getVar('SYSROOT_DESTDIR')
+    pn = d.getVar('PN')
+    libdir = os.path.abspath(dstdir + os.sep + d.getVar("libdir"))
+    base_libdir = os.path.abspath(dstdir + os.sep + d.getVar("base_libdir"))
+    qa_already_stripped = 'already-stripped' in (d.getVar('INSANE_SKIP_' + pn) or "").split()
+    strip_cmd = d.getVar("STRIP")
 
     oe.package.strip_execs(pn, dstdir, strip_cmd, libdir, base_libdir,
                            qa_already_stripped=qa_already_stripped)
@@ -167,11 +167,11 @@ def staging_processfixme(fixme, target, recipesysroot, recipesysrootnative, d):
     if not fixme:
         return
     cmd = "sed -e 's:^[^/]*/:%s/:g' %s | xargs sed -i -e 's:FIXMESTAGINGDIRTARGET:%s:g; s:FIXMESTAGINGDIRHOST:%s:g'" % (target, " ".join(fixme), recipesysroot, recipesysrootnative)
-    for fixmevar in ['COMPONENTS_DIR', 'HOSTTOOLS_DIR', 'PKGDATA_DIR']:
+    for fixmevar in ['COMPONENTS_DIR', 'HOSTTOOLS_DIR', 'PKGDATA_DIR', 'PSEUDO_LOCALSTATEDIR', 'LOGFIFO']:
         fixme_path = d.getVar(fixmevar)
         cmd += " -e 's:FIXME_%s:%s:g'" % (fixmevar, fixme_path)
     bb.debug(2, cmd)
-    subprocess.check_output(cmd, shell=True)
+    subprocess.check_output(cmd, shell=True, stderr=subprocess.STDOUT)
 
 
 def staging_populate_sysroot_dir(targetsysroot, nativesysroot, native, d):
@@ -228,7 +228,7 @@ def staging_populate_sysroot_dir(targetsysroot, nativesysroot, native, d):
 
     staging_processfixme(fixme, targetdir, targetsysroot, nativesysroot, d)
     for p in postinsts:
-        subprocess.check_output(p, shell=True)
+        subprocess.check_output(p, shell=True, stderr=subprocess.STDOUT)
 
 #
 # Manifests here are complicated. The main sysroot area has the unpacked sstate
@@ -373,7 +373,8 @@ python extend_recipe_sysroot() {
                     msgbuf.append("Following dependency on %s" % setscenedeps[datadep][0])
         next = new
 
-    bb.note("\n".join(msgbuf))
+    # This logging is too verbose for day to day use sadly
+    #bb.debug(2, "\n".join(msgbuf))
 
     depdir = recipesysrootnative + "/installeddeps"
     bb.utils.mkdirhier(depdir)
@@ -442,6 +443,8 @@ python extend_recipe_sysroot() {
             os.unlink(fl)
             os.unlink(fl + ".complete")
 
+    msg_exists = []
+    msg_adding = []
     for dep in configuredeps:
         c = setscenedeps[dep][0]
         if c not in installed:
@@ -452,7 +455,7 @@ python extend_recipe_sysroot() {
         if os.path.exists(depdir + "/" + c):
             lnk = os.readlink(depdir + "/" + c)
             if lnk == c + "." + taskhash and os.path.exists(depdir + "/" + c + ".complete"):
-                bb.note("%s exists in sysroot, skipping" % c)
+                msg_exists.append(c)
                 continue
             else:
                 bb.note("%s exists in sysroot, but is stale (%s vs. %s), removing." % (c, lnk, c + "." + taskhash))
@@ -462,6 +465,8 @@ python extend_recipe_sysroot() {
                     os.unlink(depdir + "/" + c + ".complete")
         elif os.path.lexists(depdir + "/" + c):
             os.unlink(depdir + "/" + c)
+
+        msg_adding.append(c)
 
         os.symlink(c + "." + taskhash, depdir + "/" + c)
 
@@ -559,6 +564,9 @@ python extend_recipe_sysroot() {
                         continue
                     staging_copyfile(l, targetdir, dest, postinsts, seendirs)
 
+    bb.note("Installed into sysroot: %s" % str(msg_adding))
+    bb.note("Skipping as already exists in sysroot: %s" % str(msg_exists))
+
     for f in fixme:
         if f == '':
             staging_processfixme(fixme[f], recipesysroot, recipesysroot, recipesysrootnative, d)
@@ -568,7 +576,7 @@ python extend_recipe_sysroot() {
             staging_processfixme(fixme[f], multilibs[f].getVar("RECIPE_SYSROOT"), recipesysroot, recipesysrootnative, d)
 
     for p in postinsts:
-        subprocess.check_output(p, shell=True)
+        subprocess.check_output(p, shell=True, stderr=subprocess.STDOUT)
 
     for dep in manifests:
         c = setscenedeps[dep][0]

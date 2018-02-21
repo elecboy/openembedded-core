@@ -140,19 +140,13 @@ RDEPENDS_packagegroup-core-full-cmdline-sys-services = "\
     bzip2 \
     cronie \
     dbus \
-    dbus-glib \
     elfutils \
     gzip \
     less \
-    libcap \
-    libevent \
     logrotate \
     nfs-utils \
     pciutils \
-    libpcre \
     rpcbind \
-    sysfsutils \
     tcp-wrappers \
     tzdata \
     "
-

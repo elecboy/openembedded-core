@@ -17,6 +17,7 @@ SRC_URI += "\
         file://0005-fix-a-stack-usage-warning.patch \
         file://0006-Fix-build-on-aarch64-musl.patch \
         file://0007-Fix-control-path-where-we-have-str-as-uninitialized-.patch \
+        file://0001-libasm-may-link-with-libbz2-if-found.patch \
 "
 SRC_URI_append_libc-musl = " file://0008-build-Provide-alternatives-for-glibc-assumptions-hel.patch"
 
@@ -31,8 +32,8 @@ SRC_URI += "\
         file://debian/0002-Add-support-for-mips64-abis-in-mips_retval.c.patch \
         file://debian/0003-Add-mips-n64-relocation-format-hack.patch \
 "
-# Fix the patches from Debian with GCC7
-SRC_URI += "file://debian/fallthrough.patch"
+# Fix fallthrough with GCC7
+SRC_URI += "file://0001-Use-fallthrough-attribute.patch"
 
 # The buildsystem wants to generate 2 .h files from source using a binary it just built,
 # which can not pass the cross compiling, so let's work around it by adding 2 .h files

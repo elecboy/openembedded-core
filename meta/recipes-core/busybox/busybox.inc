@@ -41,7 +41,9 @@ INITSCRIPT_NAME_${PN}-udhcpd = "busybox-udhcpd"
 SYSTEMD_PACKAGES = "${PN}-syslog"
 SYSTEMD_SERVICE_${PN}-syslog = "${@bb.utils.contains('SRC_URI', 'file://syslog.cfg', 'busybox-syslog.service', '', d)}"
 
-CONFFILES_${PN}-syslog = "${sysconfdir}/syslog-startup.conf.${BPN}"
+CONFFILES_${PN}-syslog = "${sysconfdir}/syslog-startup.conf"
+RCONFLICTS_${PN}-syslog = "rsyslog sysklogd syslog-ng"
+
 CONFFILES_${PN}-mdev = "${sysconfdir}/mdev.conf"
 
 RRECOMMENDS_${PN} = "${PN}-syslog ${PN}-udhcpc"
@@ -154,6 +156,12 @@ do_compile() {
 		cp .config .config.orig
 		oe_runmake busybox.cfg.suid
 		oe_runmake busybox.cfg.nosuid
+
+		# workaround for suid bug 10346
+		if ! grep -q "CONFIG_SH_IS_NONE" busybox.cfg.nosuid; then
+			echo "CONFIG_SH_IS_NONE" >> busybox.cfg.suid
+		fi
+
 		for i in `cat busybox.cfg.suid busybox.cfg.nosuid`; do
 			echo "# $i is not set" >> .config.disable.apps
 		done
@@ -163,12 +171,24 @@ do_compile() {
 			cat busybox.cfg.$s | while read item; do
 				grep -w "$item" .config.orig
 			done > .config.app.$s
+
+			# workaround for suid bug 10346
+			if [ "$s" = "suid" ] ; then
+				sed "s/.*CONFIG_SH_IS_NONE.*$/CONFIG_SH_IS_NONE=y/" -i .config.app.suid
+			fi
+
 			merge_config.sh -m .config.nonapps .config.app.$s
 			oe_runmake busybox_unstripped
 			mv busybox_unstripped busybox.$s
 			oe_runmake busybox.links
 			mv busybox.links busybox.links.$s
 		done
+
+		# hard fail if sh is being linked to the suid busybox (detects bug 10346)
+		if grep -q -x "/bin/sh" busybox.links.suid; then
+			bbfatal "busybox suid binary incorrectly provides /bin/sh"
+		fi
+
 		# copy .config.orig back to .config, because the install process may check this file
 		cp .config.orig .config
 		# cleanup
@@ -202,7 +222,7 @@ do_install () {
 			install -m 0755 ${B}/busybox.nosuid ${D}${base_bindir}
 			install -m 0644 ${S}/busybox.links.suid ${D}${sysconfdir}
 			install -m 0644 ${S}/busybox.links.nosuid ${D}${sysconfdir}
-			if grep -q "CONFIG_FEATURE_SH_IS_ASH=y" ${B}/.config; then
+			if grep -q "CONFIG_SH_IS_ASH=y" ${B}/.config; then
 				ln -sf busybox.nosuid ${D}${base_bindir}/sh
 			fi
 			# Keep a default busybox for people who want to invoke busybox directly.
@@ -216,7 +236,7 @@ do_install () {
 				install -m 0755 ${B}/busybox ${D}${base_bindir}
 			fi
 			install -m 0644 ${S}/busybox.links ${D}${sysconfdir}
-			if grep -q "CONFIG_FEATURE_SH_IS_ASH=y" ${B}/.config; then
+			if grep -q "CONFIG_SH_IS_ASH=y" ${B}/.config; then
 				ln -sf busybox ${D}${base_bindir}/sh
 			fi
 			# We make this symlink here to eliminate the error when upgrading together
@@ -248,9 +268,9 @@ do_install () {
 	fi
 
 	if grep -q "CONFIG_SYSLOGD=y" ${B}/.config; then
-		install -m 0755 ${WORKDIR}/syslog ${D}${sysconfdir}/init.d/syslog.${BPN}
-		install -m 644 ${WORKDIR}/syslog-startup.conf ${D}${sysconfdir}/syslog-startup.conf.${BPN}
-		install -m 644 ${WORKDIR}/syslog.conf ${D}${sysconfdir}/syslog.conf.${BPN}
+		install -m 0755 ${WORKDIR}/syslog ${D}${sysconfdir}/init.d/syslog
+		install -m 644 ${WORKDIR}/syslog-startup.conf ${D}${sysconfdir}/syslog-startup.conf
+		install -m 644 ${WORKDIR}/syslog.conf ${D}${sysconfdir}/syslog.conf
 	fi
 	if grep "CONFIG_CROND=y" ${B}/.config; then
 		install -m 0755 ${WORKDIR}/busybox-cron ${D}${sysconfdir}/init.d/
@@ -311,7 +331,6 @@ do_install () {
 		install -d ${D}${sysconfdir}/default
 		install -m 0644 ${WORKDIR}/busybox-syslog.default ${D}${sysconfdir}/default/busybox-syslog
             fi
-            ln -sf /dev/null ${D}${systemd_unitdir}/system/syslog.service
         fi
         if grep -q "CONFIG_KLOGD=y" ${B}/.config; then
             install -d ${D}${systemd_unitdir}/system
@@ -322,7 +341,7 @@ do_install () {
 
     # Remove the sysvinit specific configuration file for systemd systems to avoid confusion
     if ${@bb.utils.contains('DISTRO_FEATURES', 'sysvinit', 'false', 'true', d)}; then
-	rm -f ${D}${sysconfdir}/syslog-startup.conf.${BPN}
+	rm -f ${D}${sysconfdir}/syslog-startup.conf
     fi
 }
 
@@ -335,20 +354,6 @@ do_install_ptest () {
 inherit update-alternatives
 
 ALTERNATIVE_PRIORITY = "50"
-
-ALTERNATIVE_${PN}-syslog += "${@bb.utils.contains('SRC_URI', 'file://syslog.cfg', 'syslog-conf', '', d)}"
-ALTERNATIVE_LINK_NAME[syslog-conf] = "${@bb.utils.contains('SRC_URI', 'file://syslog.cfg', "${sysconfdir}/syslog.conf", '', d)}"
-
-python () {
-    if bb.utils.contains('DISTRO_FEATURES', 'sysvinit', True, False, d):
-        pn = d.getVar('PN')
-        d.appendVar('ALTERNATIVE_%s-syslog' % (pn), ' syslog-init')
-        d.setVarFlag('ALTERNATIVE_LINK_NAME', 'syslog-init', '%s/init.d/syslog' % (d.getVar('sysconfdir')))
-        d.setVarFlag('ALTERNATIVE_TARGET', 'syslog-init', '%s/init.d/syslog.%s' % (d.getVar('sysconfdir'), d.getVar('BPN')))
-        d.appendVar('ALTERNATIVE_%s-syslog' % (pn), ' syslog-startup-conf')
-        d.setVarFlag('ALTERNATIVE_LINK_NAME', 'syslog-startup-conf', '%s/syslog-startup.conf' % (d.getVar('sysconfdir')))
-        d.setVarFlag('ALTERNATIVE_TARGET', 'syslog-startup-conf', '%s/syslog-startup.conf.%s' % (d.getVar('sysconfdir'), d.getVar('BPN')))
-}
 
 python do_package_prepend () {
     # We need to load the full set of busybox provides from the /etc/busybox.links

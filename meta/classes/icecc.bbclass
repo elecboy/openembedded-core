@@ -28,9 +28,22 @@
 #Error checking is kept to minimum so double check any parameters you pass to the class
 ###########################################################################################
 
-BB_HASHBASE_WHITELIST += "ICECC_PARALLEL_MAKE ICECC_DISABLED ICECC_USER_PACKAGE_BL ICECC_USER_CLASS_BL ICECC_USER_PACKAGE_WL ICECC_PATH ICECC_ENV_EXEC"
+BB_HASHBASE_WHITELIST += "ICECC_PARALLEL_MAKE ICECC_DISABLED ICECC_USER_PACKAGE_BL \
+    ICECC_USER_CLASS_BL ICECC_USER_PACKAGE_WL ICECC_PATH ICECC_ENV_EXEC \
+    ICECC_CARET_WORKAROUND ICECC_CFLAGS"
 
 ICECC_ENV_EXEC ?= "${STAGING_BINDIR_NATIVE}/icecc-create-env"
+
+# Default to disabling the caret workaround, If set to "1" in local.conf, icecc
+# will locally recompile any files that have warnings, which can adversely
+# affect performance.
+#
+# See: https://github.com/icecc/icecream/issues/190
+export ICECC_CARET_WORKAROUND ??= "0"
+
+ICECC_CFLAGS = ""
+CFLAGS += "${ICECC_CFLAGS}"
+CXXFLAGS += "${ICECC_CFLAGS}"
 
 def icecc_dep_prepend(d):
     # INHIBIT_DEFAULT_DEPS doesn't apply to the patch command.  Whether or  not
@@ -101,6 +114,9 @@ def use_icecc(bb,d):
     if icecc_is_allarch(bb, d):
         return "no"
 
+    if icecc_is_cross_canadian(bb, d):
+        return "no"
+
     pn = d.getVar('PN')
 
     system_class_blacklist = []
@@ -151,6 +167,12 @@ def icecc_is_native(bb, d):
         bb.data.inherits_class("cross", d) or \
         bb.data.inherits_class("native", d);
 
+def icecc_is_cross_canadian(bb, d):
+    return bb.data.inherits_class("cross-canadian", d)
+
+def icecc_dir(bb, d):
+    return d.expand('${TMPDIR}/work-shared/ice')
+
 # Don't pollute allarch signatures with TARGET_FPU
 icecc_version[vardepsexclude] += "TARGET_FPU"
 def icecc_version(bb, d):
@@ -160,6 +182,11 @@ def icecc_version(bb, d):
     parallel = d.getVar('ICECC_PARALLEL_MAKE', False) or ""
     if not d.getVar('PARALLEL_MAKE', False) == "" and parallel:
         d.setVar("PARALLEL_MAKE", parallel)
+
+    # Disable showing the caret in the GCC compiler output if the workaround is
+    # disabled
+    if d.getVar('ICECC_CARET_WORKAROUND', True) == '0':
+        d.setVar('ICECC_CFLAGS', '-fno-diagnostics-show-caret')
 
     if icecc_is_native(bb, d):
         archive_name = "local-host-env"
@@ -175,8 +202,8 @@ def icecc_version(bb, d):
             archive_name += "-kernel"
 
     import socket
-    ice_dir = d.expand('${STAGING_DIR_NATIVE}${prefix_native}')
-    tar_file = os.path.join(ice_dir, 'ice', archive_name + "-@VERSION@-" + socket.gethostname() + '.tar.gz')
+    ice_dir = icecc_dir(bb, d)
+    tar_file = os.path.join(ice_dir, archive_name + "-@VERSION@-" + socket.gethostname() + '.tar.gz')
 
     return tar_file
 
@@ -207,15 +234,14 @@ def icecc_get_tool(bb, d, tool):
     else:
         ice_dir = d.expand('${STAGING_BINDIR_TOOLCHAIN}')
         target_sys = d.expand('${TARGET_SYS}')
-        tool_bin = os.path.join(ice_dir, "%s-%s" % (target_sys, tool))
-        if os.path.isfile(tool_bin):
-            return tool_bin
-        else:
-            external_tool_bin = icecc_get_external_tool(bb, d, tool)
-            if os.path.isfile(external_tool_bin):
-                return external_tool_bin
-            else:
-                return ""
+        for p in ice_dir.split(':'):
+            tool_bin = os.path.join(p, "%s-%s" % (target_sys, tool))
+            if os.path.isfile(tool_bin):
+                return tool_bin
+        external_tool_bin = icecc_get_external_tool(bb, d, tool)
+        if os.path.isfile(external_tool_bin):
+            return external_tool_bin
+        return ""
 
 def icecc_get_and_check_tool(bb, d, tool):
     # Check that g++ or gcc is not a symbolic link to icecc binary in
@@ -338,3 +364,10 @@ do_compile_kernelmodules_prepend() {
 do_install_prepend() {
     set_icecc_env
 }
+
+# IceCream is not (currently) supported in the extensible SDK
+ICECC_SDK_HOST_TASK = "nativesdk-icecc-toolchain"
+ICECC_SDK_HOST_TASK_task-populate-sdk-ext = ""
+
+# Add the toolchain scripts to the SDK
+TOOLCHAIN_HOST_TASK_append = " ${ICECC_SDK_HOST_TASK}"

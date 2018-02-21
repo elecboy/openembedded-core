@@ -10,6 +10,8 @@ class ImageFeatures(OESelftestTestCase):
     test_user = 'tester'
     root_user = 'root'
 
+    buffer = True
+
     @OETestID(1107)
     def test_non_root_user_can_connect_via_ssh_without_password(self):
         """
@@ -209,7 +211,7 @@ class ImageFeatures(OESelftestTestCase):
         image_name = 'core-image-minimal'
 
         img_types = [itype for itype in get_bb_var("IMAGE_TYPES", image_name).split() \
-                         if itype not in ('container', 'elf', 'multiubi')]
+                         if itype not in ('container', 'elf', 'f2fs', 'multiubi')]
 
         config = 'IMAGE_FSTYPES += "%s"\n'\
                  'MKUBIFS_ARGS ?= "-m 2048 -e 129024 -c 2047"\n'\
@@ -226,3 +228,13 @@ class ImageFeatures(OESelftestTestCase):
             # check if result image is in deploy directory
             self.assertTrue(os.path.exists(image_path),
                             "%s image %s doesn't exist" % (itype, image_path))
+
+    def test_useradd_static(self):
+        config = """
+USERADDEXTENSION = "useradd-staticids"
+USERADD_ERROR_DYNAMIC = "skip"
+USERADD_UID_TABLES += "files/static-passwd"
+USERADD_GID_TABLES += "files/static-group"
+"""
+        self.write_config(config)
+        bitbake("core-image-base")

@@ -46,7 +46,6 @@ do_dumpdata[dirs] = "${ARCHIVER_OUTDIR}"
 do_ar_recipe[dirs] = "${ARCHIVER_OUTDIR}"
 do_ar_original[dirs] = "${ARCHIVER_OUTDIR} ${ARCHIVER_WORKDIR}"
 do_deploy_archives[dirs] = "${WORKDIR}"
-do_deploy_all_archives[dirs] = "${WORKDIR}"
 
 # This is a convenience for the shell script to use it
 
@@ -114,10 +113,9 @@ python () {
     if ar_recipe == "1":
         d.appendVarFlag('do_deploy_archives', 'depends', ' %s:do_ar_recipe' % pn)
 
-    # Output the srpm package
-    ar_srpm = d.getVarFlag('ARCHIVER_MODE', 'srpm')
-    if ar_srpm == "1":
-        if d.getVar('PACKAGES') != '' and d.getVar('IMAGE_PKGTYPE') == 'rpm':
+    # Output the SRPM package
+    if d.getVarFlag('ARCHIVER_MODE', 'srpm') == "1" and d.getVar('PACKAGES'):
+        if "package_rpm" in d.getVar('PACKAGE_CLASSES'):
             d.appendVarFlag('do_deploy_archives', 'depends', ' %s:do_package_write_rpm' % pn)
             if ar_dumpdata == "1":
                 d.appendVarFlag('do_package_write_rpm', 'depends', ' %s:do_dumpdata' % pn)
@@ -129,6 +127,8 @@ python () {
                 d.appendVarFlag('do_package_write_rpm', 'depends', ' %s:do_ar_patched' % pn)
             elif ar_src == "configured":
                 d.appendVarFlag('do_package_write_rpm', 'depends', ' %s:do_ar_configured' % pn)
+        else:
+            bb.fatal("ARCHIVER_MODE[srpm] needs package_rpm in PACKAGE_CLASSES")
 }
 
 # Take all the sources for a recipe and puts them in WORKDIR/archiver-work/.
@@ -223,6 +223,8 @@ python do_ar_configured() {
     import shutil
 
     # Forcibly expand the sysroot paths as we're about to change WORKDIR
+    d.setVar('STAGING_DIR_HOST', d.getVar('STAGING_DIR_HOST'))
+    d.setVar('STAGING_DIR_TARGET', d.getVar('STAGING_DIR_TARGET'))
     d.setVar('RECIPE_SYSROOT', d.getVar('RECIPE_SYSROOT'))
     d.setVar('RECIPE_SYSROOT_NATIVE', d.getVar('RECIPE_SYSROOT_NATIVE'))
 
@@ -452,13 +454,6 @@ addtask do_ar_configured after do_unpack_and_patch
 addtask do_dumpdata
 addtask do_ar_recipe
 addtask do_deploy_archives before do_build
-
-addtask do_deploy_all_archives after do_deploy_archives
-do_deploy_all_archives[recrdeptask] = "do_deploy_archives"
-do_deploy_all_archives[recideptask] = "do_${BB_DEFAULT_TASK}"
-do_deploy_all_archives() {
-        :
-}
 
 python () {
     # Add tasks in the correct order, specifically for linux-yocto to avoid race condition.

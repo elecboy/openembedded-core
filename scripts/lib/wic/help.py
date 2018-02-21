@@ -155,7 +155,7 @@ SYNOPSIS
         [-e | --image-name] [-s, --skip-build-check] [-D, --debug]
         [-r, --rootfs-dir] [-b, --bootimg-dir]
         [-k, --kernel-dir] [-n, --native-sysroot] [-f, --build-rootfs]
-        [-c, --compress-with] [-m, --bmap]
+        [-c, --compress-with] [-m, --bmap] [--no-fstab-update]
 
 DESCRIPTION
     This command creates an OpenEmbedded image based on the 'OE
@@ -227,6 +227,11 @@ DESCRIPTION
 
     The -m option is used to produce .bmap file for the image. This file
     can be used to flash image using bmaptool utility.
+
+    The --no-fstab-update option is used to doesn't change fstab file. When
+    using this option the final fstab file will be same that in rootfs and
+    wic doesn't update file, e.g adding a new mount point. User can control
+    the fstab file content in base-files recipe.
 """
 
 wic_list_usage = """
@@ -858,7 +863,10 @@ DESCRIPTION
        This is achieved by wic adding entries to the fstab during image
        generation. In order for a valid fstab to be generated one of the
        --ondrive, --ondisk or --use-uuid partition options must be used for
-       each partition that specifies a mountpoint.
+       each partition that specifies a mountpoint.  Note that with --use-uuid
+       and non-root <mountpoint>, including swap, the mount program must
+       understand the PARTUUID syntax.  This currently excludes the busybox
+       versions of these applications.
 
 
        The following are supported 'part' options:
@@ -965,6 +973,8 @@ DESCRIPTION
                             This option cannot be used with --fixed-size
                             option.
 
+         --part-name: This option is specific to wic. It specifies name for GPT partitions.
+
          --part-type: This option is specific to wic. It specifies partition
                       type GUID for GPT partitions.
                       List of partition type GUIDS can be found here:
@@ -978,6 +988,11 @@ DESCRIPTION
                  It's useful if preconfigured partition UUID is added to kernel command line
                  in bootloader configuration before running wic. In this case .wks file can
                  be generated or modified to set preconfigured parition UUID using this option.
+
+         --fsuuid: This option is specific to wic. It specifies filesystem UUID.
+                   It's useful if preconfigured filesystem UUID is added to kernel command line
+                   in bootloader configuration before running wic. In this case .wks file can
+                   be generated or modified to set preconfigured filesystem UUID using this option.
 
          --system-id: This option is specific to wic. It specifies partition system id. It's useful
                       for the harware that requires non-default partition system ids. The parameter

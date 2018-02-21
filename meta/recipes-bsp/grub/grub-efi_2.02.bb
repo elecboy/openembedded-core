@@ -2,8 +2,8 @@ require grub2.inc
 
 GRUBPLATFORM = "efi"
 
-DEPENDS_class-target = "grub-efi-native"
-RDEPENDS_${PN}_class-target = "diffutils freetype"
+DEPENDS_append_class-target = " grub-efi-native"
+RDEPENDS_${PN}_class-target = "diffutils freetype grub-common"
 
 SRC_URI += " \
            file://cfg \
@@ -22,7 +22,7 @@ python __anonymous () {
         grubtarget = 'i386'
         grubimage = "grub-efi-bootia32.efi"
     else:
-        raise bb.parse.SkipPackage("grub-efi is incompatible with target %s" % target)
+        raise bb.parse.SkipRecipe("grub-efi is incompatible with target %s" % target)
     d.setVar("GRUB_TARGET", grubtarget)
     d.setVar("GRUB_IMAGE", grubimage)
 }
@@ -41,7 +41,20 @@ do_install_class-native() {
 	install -m 755 grub-mkimage ${D}${bindir}
 }
 
-GRUB_BUILDIN ?= "boot linux ext2 fat serial part_msdos part_gpt normal efi_gop iso9660 search"
+do_install_class-target() {
+    oe_runmake 'DESTDIR=${D}' -C grub-core install
+
+    # Remove build host references...
+    find "${D}" -name modinfo.sh -type f -exec \
+        sed -i \
+        -e 's,--sysroot=${STAGING_DIR_TARGET},,g' \
+        -e 's|${DEBUG_PREFIX_MAP}||g' \
+        -e 's:${RECIPE_SYSROOT_NATIVE}::g' \
+        {} +
+}
+
+GRUB_BUILDIN ?= "boot linux ext2 fat serial part_msdos part_gpt normal \
+                 efi_gop iso9660 configfile search loadenv test"
 
 do_deploy() {
 	# Search for the grub.cfg on the local boot media by using the
@@ -58,8 +71,7 @@ do_deploy_class-native() {
 
 addtask deploy after do_install before do_build
 
-FILES_${PN} += "${libdir}/grub/${GRUB_TARGET}-efi \
-                ${datadir}/grub \
+FILES_${PN} = "${libdir}/grub/${GRUB_TARGET}-efi \
                 "
 
 # 64-bit binaries are expected for the bootloader with an x32 userland

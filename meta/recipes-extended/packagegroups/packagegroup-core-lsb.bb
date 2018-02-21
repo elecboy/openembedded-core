@@ -19,7 +19,7 @@ REQUIRED_DISTRO_FEATURES += "opengl"
 #
 python __anonymous () {
     if d.getVar('TCLIBC') != "glibc":
-        raise bb.parse.SkipPackage("incompatible with %s C library" %
+        raise bb.parse.SkipRecipe("incompatible with %s C library" %
                                    d.getVar('TCLIBC'))
 }
 
@@ -68,7 +68,6 @@ RDEPENDS_packagegroup-core-sys-extended = "\
     mc-helpers-perl \
     mdadm \
     minicom \
-    neon \
     parted \
     quota \
     screen \

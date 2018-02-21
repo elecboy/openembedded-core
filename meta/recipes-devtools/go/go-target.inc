@@ -7,6 +7,7 @@ export GOHOSTARCH = "${BUILD_GOARCH}"
 export GOOS = "${TARGET_GOOS}"
 export GOARCH = "${TARGET_GOARCH}"
 export GOARM = "${TARGET_GOARM}"
+export GO386 = "${TARGET_GO386}"
 export GOROOT_BOOTSTRAP = "${STAGING_LIBDIR_NATIVE}/go"
 export GOROOT_FINAL = "${libdir}/go"
 export CGO_ENABLED = "1"
@@ -18,11 +19,14 @@ GO_LDFLAGS = ""
 GO_LDFLAGS_class-nativesdk = "-linkmode external"
 export GO_LDFLAGS
 
+SECURITY_CFLAGS = "${SECURITY_NOPIE_CFLAGS}"
+SECURITY_LDFLAGS = ""
+
 do_configure[noexec] = "1"
 
 do_compile() {
 	export GOBIN="${B}/bin"
-	export CC="${@d.getVar('BUILD_CC', True).strip()}"
+	export CC="${@d.getVar('BUILD_CC').strip()}"
 	rm -rf ${GOBIN} ${B}/pkg
 	mkdir ${GOBIN}
 

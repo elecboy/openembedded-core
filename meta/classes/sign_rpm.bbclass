@@ -67,3 +67,5 @@ python sign_rpm () {
 
 do_package_index[depends] += "signing-keys:do_deploy"
 do_rootfs[depends] += "signing-keys:do_populate_sysroot"
+
+PACKAGE_WRITE_DEPS += "gnupg-native"

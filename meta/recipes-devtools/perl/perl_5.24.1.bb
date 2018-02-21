@@ -1,8 +1,7 @@
 require perl.inc
 
 # We need gnugrep (for -I)
-DEPENDS = "virtual/db grep-native"
-DEPENDS += "gdbm zlib"
+DEPENDS = "db grep-native gdbm zlib"
 
 # Pick up patches from debian
 # http://ftp.de.debian.org/debian/pool/main/p/perl/perl_5.22.0-1.debian.tar.xz
@@ -189,6 +188,19 @@ do_compile() {
         oe_runmake perl LD="${CCLD}"
 }
 
+do_compile_append_class-target() {
+        # Remove build host references from numerous comments...
+        find "${S}/cpan/Encode" -type f \
+            \( -name '*.exh' -o -name '*.c' -o -name '*.h' \)\
+            -exec sed -i -e 's:${RECIPE_SYSROOT_NATIVE}::g' {} +
+        sed -i -e 's:${RECIPE_SYSROOT}::g' ${S}/perl.h ${S}/pp.h
+        sed -i -e 's:${RECIPE_SYSROOT_NATIVE}/usr/bin/perl-native/perl${PV}.real:/usr/bin/perl${PV}:g'  \
+            ${S}/cpan/Compress-Raw-Bzip2/constants.h \
+            ${S}/cpan/Compress-Raw-Zlib/constants.h \
+            ${S}/cpan/IPC-SysV/const-c.inc \
+            ${S}/dist/Time-HiRes/const-c.inc
+}
+
 do_install() {
 	#export hostperl="${STAGING_BINDIR_NATIVE}/perl-native/perl${PV}"
 	oe_runmake install DESTDIR=${D}
@@ -223,6 +235,7 @@ PACKAGE_PREPROCESS_FUNCS += "perl_package_preprocess"
 perl_package_preprocess () {
         # Fix up installed configuration
         sed -i -e "s,${D},,g" \
+               -e "s,${DEBUG_PREFIX_MAP},,g" \
                -e "s,--sysroot=${STAGING_DIR_HOST},,g" \
                -e "s,-isystem${STAGING_INCDIR} ,,g" \
                -e "s,${STAGING_LIBDIR},${libdir},g" \
@@ -231,6 +244,7 @@ perl_package_preprocess () {
                -e "s,${STAGING_BINDIR_NATIVE}/perl-native/,${bindir}/,g" \
                -e "s,${STAGING_BINDIR_NATIVE}/,,g" \
                -e "s,${STAGING_BINDIR_TOOLCHAIN}/${TARGET_PREFIX},${bindir},g" \
+               -e 's:${RECIPE_SYSROOT}::g' \
             ${PKGD}${bindir}/h2xs \
             ${PKGD}${bindir}/h2ph \
             ${PKGD}${bindir}/pod2man \
@@ -266,6 +280,7 @@ FILES_${PN}-dev = "${libdir}/perl/${PV}/CORE"
 FILES_${PN}-lib = "${libdir}/libperl.so* \
                    ${libdir}/perl5 \
                    ${libdir}/perl/config.sh \
+		   ${libdir}/perl/${PV}/Config_git.pl \
                    ${libdir}/perl/${PV}/Config_heavy.pl \
                    ${libdir}/perl/${PV}/Config_heavy-target.pl"
 FILES_${PN}-pod = "${libdir}/perl/${PV}/pod \

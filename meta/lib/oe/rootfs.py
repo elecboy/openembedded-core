@@ -261,15 +261,22 @@ class Rootfs(object, metaclass=ABCMeta):
             # Remove components that we don't need if it's a read-only rootfs
             unneeded_pkgs = self.d.getVar("ROOTFS_RO_UNNEEDED").split()
             pkgs_installed = image_list_installed_packages(self.d)
-            # Make sure update-alternatives is last on the command line, so
-            # that it is removed last. This makes sure that its database is
-            # available while uninstalling packages, allowing alternative
-            # symlinks of packages to be uninstalled to be managed correctly.
+            # Make sure update-alternatives is removed last. This is
+            # because its database has to available while uninstalling
+            # other packages, allowing alternative symlinks of packages
+            # to be uninstalled or to be managed correctly otherwise.
             provider = self.d.getVar("VIRTUAL-RUNTIME_update-alternatives")
             pkgs_to_remove = sorted([pkg for pkg in pkgs_installed if pkg in unneeded_pkgs], key=lambda x: x == provider)
 
+            # update-alternatives provider is removed in its own remove()
+            # call because all package managers do not guarantee the packages
+            # are removed in the order they given in the list (which is
+            # passed to the command line). The sorting done earlier is
+            # utilized to implement the 2-stage removal.
+            if len(pkgs_to_remove) > 1:
+                self.pm.remove(pkgs_to_remove[:-1], False)
             if len(pkgs_to_remove) > 0:
-                self.pm.remove(pkgs_to_remove, False)
+                self.pm.remove([pkgs_to_remove[-1]], False)
 
         if delayed_postinsts:
             self._save_postinsts()
@@ -286,6 +293,24 @@ class Rootfs(object, metaclass=ABCMeta):
             # Remove the package manager data files
             self.pm.remove_packaging_data()
 
+    def _postpone_to_first_boot(self, postinst_intercept_hook):
+        with open(postinst_intercept_hook) as intercept:
+            registered_pkgs = None
+            for line in intercept.read().split("\n"):
+                m = re.match("^##PKGS:(.*)", line)
+                if m is not None:
+                    registered_pkgs = m.group(1).strip()
+                    break
+
+            if registered_pkgs is not None:
+                bb.note("The postinstalls for the following packages "
+                        "will be postponed for first boot: %s" %
+                        registered_pkgs)
+
+                # call the backend dependent handler
+                self._handle_intercept_failure(registered_pkgs)
+
+
     def _run_intercepts(self):
         intercepts_dir = os.path.join(self.d.getVar('WORKDIR'),
                                       "intercept_scripts")
@@ -299,6 +324,10 @@ class Rootfs(object, metaclass=ABCMeta):
             if script == "postinst_intercept" or not os.access(script_full, os.X_OK):
                 continue
 
+            if script == "delay_to_first_boot":
+                self._postpone_to_first_boot(script_full)
+                continue
+
             bb.note("> Executing %s intercept ..." % script)
 
             try:
@@ -307,22 +336,7 @@ class Rootfs(object, metaclass=ABCMeta):
             except subprocess.CalledProcessError as e:
                 bb.warn("The postinstall intercept hook '%s' failed, details in log.do_rootfs" % script)
                 bb.note("Exit code %d. Output:\n%s" % (e.returncode, e.output.decode("utf-8")))
-
-                with open(script_full) as intercept:
-                    registered_pkgs = None
-                    for line in intercept.read().split("\n"):
-                        m = re.match("^##PKGS:(.*)", line)
-                        if m is not None:
-                            registered_pkgs = m.group(1).strip()
-                            break
-
-                    if registered_pkgs is not None:
-                        bb.warn("The postinstalls for the following packages "
-                                "will be postponed for first boot: %s" %
-                                registered_pkgs)
-
-                        # call the backend dependent handler
-                        self._handle_intercept_failure(registered_pkgs)
+                self._postpone_to_first_boot(script_full)
 
     def _run_ldconfig(self):
         if self.d.getVar('LDCONFIGDEPEND'):
